@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Guardadas - Traductor ES / EN / DE</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="saved-shell">
+      <header class="saved-topbar">
+        <div>
+          <p class="brand-kicker">Repaso</p>
+          <h1>Palabras y frases guardadas</h1>
+        </div>
+        <button id="backToTranslatorButton" class="icon-button" type="button">Abrir traductor</button>
+      </header>
+      <p id="savedStatusMessage" class="status-message">Cargando elementos guardados…</p>
+      <section id="savedEntriesRoot" class="saved-root"></section>
+    </main>
+    <script src="browser-api.js"></script>
+    <script src="saved.js"></script>
+  </body>
+</html>

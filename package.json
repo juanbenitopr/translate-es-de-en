@@ -1,0 +1,21 @@
+{
+  "name": "plugin-german-translator",
+  "version": "1.0.0",
+  "description": "WebExtension orientada a traducir palabras y frases entre español, inglés y alemán.",
+  "main": "background.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:chrome": "node scripts/build.mjs chrome",
+    "build:firefox": "node scripts/build.mjs firefox",
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "package:chrome": "./scripts/package-chrome.sh",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "package:firefox": "./scripts/package-firefox.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "pdfjs-dist": "^5.5.207"
+  }
+}

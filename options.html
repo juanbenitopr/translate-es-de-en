@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opciones - Traductor ES / EN / DE</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app-shell" data-mode="tab">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Configuración</p>
+          <h1>Servicio de traducción</h1>
+        </div>
+      </header>
+
+      <section class="panel">
+        <label class="field-label">Presets rápidos</label>
+        <div class="button-row">
+          <button id="useFairTranslateButton" class="secondary-button" type="button">
+            FairTranslate
+          </button>
+          <button id="useMyMemoryButton" class="secondary-button" type="button">MyMemory</button>
+          <button id="useDeepLFreeButton" class="secondary-button" type="button">DeepL Free</button>
+          <button id="useDeepLProButton" class="secondary-button" type="button">DeepL Pro</button>
+        </div>
+
+        <label class="field-label" for="apiBaseUrl">Base URL</label>
+        <input id="apiBaseUrl" class="text-field" type="url" />
+
+        <label class="field-label" for="apiPath">Ruta del endpoint</label>
+        <input id="apiPath" class="text-field" type="text" value="/translate" />
+
+        <label class="field-label" for="apiKey">API key opcional</label>
+        <input id="apiKey" class="text-field" type="password" />
+
+        <label class="field-label" for="requestTimeoutMs">Timeout (ms)</label>
+        <input id="requestTimeoutMs" class="text-field" type="number" min="1000" step="1000" />
+
+        <label class="field-label" for="defaultTranslationMode">Modo por defecto</label>
+        <select id="defaultTranslationMode" class="header-select">
+          <option value="full" selected>Traducir</option>
+          <option value="word-wise">Word Wise</option>
+        </select>
+
+        <label class="field-label" for="defaultWordWiseLevel">Nivel Word Wise</label>
+        <select id="defaultWordWiseLevel" class="header-select">
+          <option value="A1">A1</option>
+          <option value="A2">A2</option>
+          <option value="B1" selected>B1</option>
+          <option value="B2">B2</option>
+          <option value="C1">C1</option>
+          <option value="C2">C2</option>
+        </select>
+
+        <label class="field-label" for="defaultTargetLanguage">Idioma destino por defecto</label>
+        <select id="defaultTargetLanguage" class="header-select">
+          <option value="es">Español</option>
+          <option value="en" selected>English</option>
+        </select>
+
+        <div class="button-row">
+          <button id="resetButton" class="secondary-button" type="button">Restablecer</button>
+          <button id="saveButton" class="primary-button" type="button">Guardar</button>
+        </div>
+
+        <p class="hint">
+          La extensión usa por defecto un endpoint compatible con LibreTranslate en fairtranslate.eu. Si ese servicio
+          no te encaja o deja de responder, configura aquí tu instancia propia o la de otro proveedor compatible.
+          También puedes probar MyMemory con el preset rápido, aunque suele ir mejor para frases cortas y tiene
+          límites más estrictos. Si eliges DeepL, recuerda que necesitas una API key y que para uso serio conviene
+          no exponerla en código cliente distribuido. Word Wise solo se aplica a texto detectado como alemán.
+        </p>
+        <p id="optionsStatus" class="status-message">Cargando configuración…</p>
+      </section>
+    </main>
+
+    <script src="browser-api.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Traductor ES / EN / DE</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body class="popup-body">
+    <main class="translator-shell" data-mode="popup">
+      <header class="translator-topbar">
+        <div class="topbar-actions">
+          <button id="openSavedButton" class="icon-button" type="button">Guardadas</button>
+        </div>
+        <div class="brand-block">
+          <div class="brand-lockup">
+            <img src="icons/translator-mark.svg" class="brand-logo" alt="" />
+            <div>
+              <p class="brand-kicker">Browser Extension</p>
+              <h1>Lingua Pin</h1>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-actions topbar-actions-end">
+          <button id="pinPopupButton" class="icon-button icon-button-accent" type="button">📌 Fijar</button>
+          <button id="openOptionsButton" class="icon-button" type="button">Opciones</button>
+        </div>
+      </header>
+
+      <section class="extras-bar" aria-label="Extras léxicos">
+        <div class="inline-control-group">
+          <label class="mini-label" for="translationMode">Modo</label>
+          <select id="translationMode" class="header-select compact-select">
+            <option value="full" selected>Traducir</option>
+            <option value="word-wise">Word Wise</option>
+          </select>
+        </div>
+        <div class="inline-control-group">
+          <label class="mini-label" for="wordWiseLevel">Nivel</label>
+          <select id="wordWiseLevel" class="header-select compact-select">
+            <option value="A1">A1</option>
+            <option value="A2">A2</option>
+            <option value="B1" selected>B1</option>
+            <option value="B2">B2</option>
+            <option value="C1">C1</option>
+            <option value="C2">C2</option>
+          </select>
+        </div>
+        <label class="option-chip" for="includeSynonyms">
+          <input id="includeSynonyms" type="checkbox" checked />
+          <span>Sinónimos</span>
+        </label>
+        <label class="option-chip" for="includeExamples">
+          <input id="includeExamples" type="checkbox" checked />
+          <span>Ejemplos</span>
+        </label>
+        <p id="extrasCopy" class="extras-copy">
+          Los sinónimos se buscan para palabras sueltas. Los ejemplos usan el idioma origen.
+        </p>
+      </section>
+
+      <section class="translator-grid">
+        <section class="translator-column translator-input-column">
+          <div class="column-head column-head-stack">
+            <div class="column-head-row">
+              <h2>Texto</h2>
+              <div class="column-head-actions">
+                <button id="useSelectionButton" class="text-action" type="button">Usar selección</button>
+                <button id="pickBlockButton" class="text-action" type="button">Elegir bloque</button>
+              </div>
+            </div>
+            <div class="language-control">
+              <label class="mini-label" for="sourceLanguage">Origen</label>
+              <select id="sourceLanguage" class="header-select">
+                <option value="auto">Auto</option>
+                <option value="es">Español</option>
+                <option value="en">English</option>
+                <option value="de">Deutsch</option>
+              </select>
+            </div>
+          </div>
+          <textarea
+            id="inputText"
+            class="compact-textarea"
+            rows="8"
+            placeholder="Selecciona texto en una web, usa clic derecho en un PDF o pega aquí la frase."
+          ></textarea>
+          <div class="action-row">
+            <button id="saveButton" class="secondary-button compact-button" type="button">Guardar</button>
+            <button id="translateButton" class="primary-button compact-button" type="button">Traducir</button>
+          </div>
+          <p class="helper-copy">
+            En PDF usa el menú contextual si el navegador expone la selección. Si no, copia y pega aquí. Usa Cmd/Ctrl+Enter para traducir al instante.
+          </p>
+        </section>
+
+        <section class="translator-column translator-result-column">
+          <div class="column-head column-head-stack">
+            <div class="column-head-row">
+              <h2>Resultado</h2>
+              <button id="openStandaloneButton" class="text-action" type="button">Abrir grande</button>
+            </div>
+            <div class="language-control">
+              <label class="mini-label" for="targetLanguage">Destino</label>
+              <select id="targetLanguage" class="header-select">
+                <option value="es">Español</option>
+                <option value="en" selected>English</option>
+                <option value="de">Deutsch</option>
+              </select>
+            </div>
+          </div>
+          <div id="statusMessage" class="status-message">Esperando texto para traducir.</div>
+          <textarea
+            id="outputText"
+            class="compact-textarea compact-textarea-readonly"
+            rows="8"
+            readonly
+            placeholder="La traducción aparecerá aquí."
+          ></textarea>
+          <div id="resultRoot" class="compact-result-root"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="browser-api.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

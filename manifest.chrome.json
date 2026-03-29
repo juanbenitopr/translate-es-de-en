@@ -1,0 +1,76 @@
+{
+  "manifest_version": 3,
+  "name": "Traductor ES / EN / DE",
+  "version": "0.1.0",
+  "description": "Traduce palabras y frases entre español, inglés y alemán, con soporte práctico para páginas web y PDFs.",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "tabs"
+  ],
+  "icons": {
+    "32": "icons/translator-mark-32.png",
+    "48": "icons/translator-mark-48.png",
+    "64": "icons/translator-mark-64.png",
+    "96": "icons/translator-mark-96.png",
+    "128": "icons/translator-mark-128.png"
+  },
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.chrome.js"
+  },
+  "action": {
+    "default_title": "Traductor ES / EN / DE",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "32": "icons/translator-mark-32.png",
+      "48": "icons/translator-mark-48.png",
+      "64": "icons/translator-mark-64.png",
+      "96": "icons/translator-mark-96.png",
+      "128": "icons/translator-mark-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "translate-selection": {
+      "suggested_key": {
+        "default": "Alt+Shift+T"
+      },
+      "description": "Traducir la selección actual"
+    },
+    "translate-pdf-selection": {
+      "suggested_key": {
+        "default": "Alt+Shift+J",
+        "mac": "Command+Shift+J"
+      },
+      "description": "Traducir la selección actual en PDF"
+    },
+    "start-block-picker": {
+      "suggested_key": {
+        "default": "Alt+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Activar el selector de bloques"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "browser-api.js",
+        "content-script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
