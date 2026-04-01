@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Guardadas - Traductor ES / EN / DE</title>
+    <title>Historial y glosario - Traductor ES / EN / DE</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -11,10 +11,59 @@
       <header class="saved-topbar">
         <div>
           <p class="brand-kicker">Repaso</p>
-          <h1>Palabras y frases guardadas</h1>
+          <h1>Historial y glosario</h1>
         </div>
         <button id="backToTranslatorButton" class="icon-button" type="button">Abrir traductor</button>
       </header>
+      <nav class="saved-tabs" aria-label="Vistas de estudio">
+        <button
+          id="historyTabButton"
+          class="saved-tab-button saved-tab-button-active"
+          data-tab="history"
+          type="button"
+        >
+          Historial
+        </button>
+        <button id="glossaryTabButton" class="saved-tab-button" data-tab="glossary" type="button">
+          Glosario
+        </button>
+      </nav>
+      <section class="saved-toolbar" aria-label="Buscar y filtrar">
+        <label class="saved-search-field">
+          <span class="mini-label">Buscar</span>
+          <input
+            id="savedSearchInput"
+            class="header-select saved-search-input"
+            type="search"
+            placeholder="Busca texto, traducciones, notas o etiquetas"
+          />
+        </label>
+        <div class="saved-filter-row">
+          <label class="inline-control-group">
+            <span class="mini-label">Tipo</span>
+            <select id="itemTypeFilter" class="header-select compact-select">
+              <option value="all">Todas</option>
+              <option value="word">Palabras</option>
+              <option value="phrase">Frases</option>
+            </select>
+          </label>
+          <div id="glossaryOnlyFilters" class="saved-inline-filters" hidden>
+            <label class="inline-control-group">
+              <span class="mini-label">Estado</span>
+              <select id="glossaryStatusFilter" class="header-select compact-select">
+                <option value="all">Todos</option>
+                <option value="new">Nuevas</option>
+                <option value="review">Repasar</option>
+                <option value="mastered">Dominadas</option>
+              </select>
+            </label>
+            <label class="saved-checkbox">
+              <input id="favoritesOnlyCheckbox" type="checkbox" />
+              <span>Solo favoritas</span>
+            </label>
+          </div>
+        </div>
+      </section>
       <p id="savedStatusMessage" class="status-message">Cargando elementos guardados…</p>
       <section id="savedEntriesRoot" class="saved-root"></section>
     </main>

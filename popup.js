@@ -681,7 +681,7 @@ async function startBlockTranslation() {
 async function saveCurrentInput() {
   const inputText = inputTextElement.value.trim();
   if (!inputText) {
-    setStatus("Introduce o selecciona un texto antes de guardarlo.");
+    setStatus("Introduce o selecciona un texto antes de añadirlo al glosario.");
     return;
   }
 
@@ -690,7 +690,11 @@ async function saveCurrentInput() {
     text: inputText
   });
 
-  setStatus(result.duplicate ? "Ese texto ya estaba guardado." : "Texto guardado.");
+  setStatus(
+    result.duplicate
+      ? "Ese texto ya estaba en el glosario."
+      : "Texto añadido al glosario."
+  );
 }
 
 async function initializePopup() {
@@ -739,8 +743,8 @@ async function initializePopup() {
   if (saveFeedback?.text) {
     setStatus(
       saveFeedback.duplicate
-        ? `La selección "${saveFeedback.text}" ya estaba guardada.`
-        : `Se ha guardado "${saveFeedback.text}".`
+        ? `La selección "${saveFeedback.text}" ya estaba en el glosario.`
+        : `Se ha añadido "${saveFeedback.text}" al glosario.`
     );
   }
 }

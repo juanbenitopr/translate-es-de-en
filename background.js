@@ -44,7 +44,11 @@ const DEEPL_TARGET_LANGUAGE_CODES = {
   en: "EN-GB",
   de: "DE"
 };
-const SAVED_ENTRIES_KEY = "savedEntries";
+const LEGACY_SAVED_ENTRIES_KEY = "savedEntries";
+const TRANSLATION_HISTORY_KEY = "translationHistory";
+const GLOSSARY_ENTRIES_KEY = "glossaryEntries";
+const HISTORY_ENTRY_LIMIT = 300;
+const GLOSSARY_STATUS_VALUES = new Set(["new", "review", "mastered"]);
 const EXAMPLES_API_BASE_URL = "https://api.tatoeba.org";
 const TATOEBA_LANGUAGE_CODES = {
   es: "spa",
@@ -81,6 +85,7 @@ const GERMAN_COMMON_WORDS = new Set(
   `.trim().split(/\s+/u)
 );
 let pinnedPopupWindowId = null;
+let didEnsureSavedCollectionsMigration = false;
 let extensionInitializationPromise = null;
 
 function normalizeLanguageCode(languageCode) {
@@ -1286,9 +1291,18 @@ async function getPopupDraft() {
   return stored[POPUP_DRAFT_KEY] ?? null;
 }
 
-async function setLastResult(result) {
+async function setLastResult(result, pageContext = null) {
+  const normalizedPageContext = normalizePageContext(pageContext);
+  const nextResult =
+    normalizedPageContext.pageTitle || normalizedPageContext.pageUrl
+      ? {
+          ...result,
+          ...normalizedPageContext
+        }
+      : result;
+
   await browserApi.storage.local.set({
-    lastResult: result,
+    lastResult: nextResult,
     lastSelection: result.input
   });
 }
@@ -1307,49 +1321,315 @@ function normalizeEntryText(text) {
   return String(text ?? "").replace(/\s+/g, " ").trim();
 }
 
-function buildSavedEntry(text, translationResult = null) {
-  const cleanText = normalizeEntryText(text);
-  if (!cleanText) {
-    throw new Error("No hay texto para guardar.");
+function createEntryId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeEntryKey(text) {
+  return normalizeEntryText(text).toLocaleLowerCase("es-ES");
+}
+
+function getEntryItemType(text) {
+  return isSingleWord(text) ? "word" : "phrase";
+}
+
+function normalizeLanguageMetadata(language) {
+  if (!language || typeof language !== "object") {
+    return null;
   }
 
-  const matchesInput = translationResult?.input === cleanText;
+  const code = normalizeLanguageCode(language.code);
+  const label = String(language.label ?? "").trim();
+
+  if (!code && !label) {
+    return null;
+  }
+
   return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-    text: cleanText,
-    sourceLanguage: matchesInput ? translationResult.sourceLanguage ?? null : null,
-    translations: matchesInput ? translationResult.translations ?? [] : [],
-    createdAt: new Date().toISOString()
+    code: code || "",
+    label: label || getLanguageLabel(code)
   };
 }
 
-async function getSavedEntries() {
-  const stored = await browserApi.storage.local.get(SAVED_ENTRIES_KEY);
-  const entries = Array.isArray(stored[SAVED_ENTRIES_KEY]) ? stored[SAVED_ENTRIES_KEY] : [];
-  return entries.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+function normalizeTranslations(translations) {
+  if (!Array.isArray(translations)) {
+    return [];
+  }
+
+  return translations
+    .map((translation) => {
+      const text = normalizeEntryText(translation?.text);
+      if (!text) {
+        return null;
+      }
+
+      const code = normalizeLanguageCode(translation?.code);
+      return {
+        code: code || "",
+        label: String(translation?.label ?? "").trim() || getLanguageLabel(code),
+        text
+      };
+    })
+    .filter(Boolean);
 }
 
-async function saveEntry(text) {
+function normalizeGlossaryStatus(status) {
+  const normalizedStatus = String(status ?? "").trim().toLowerCase();
+  return GLOSSARY_STATUS_VALUES.has(normalizedStatus) ? normalizedStatus : "new";
+}
+
+function normalizeTagList(tags) {
+  const rawTags = Array.isArray(tags) ? tags : String(tags ?? "").split(",");
+  return uniqueByNormalizedValue(
+    rawTags
+      .map((tag) => normalizeEntryText(tag))
+      .filter(Boolean)
+  );
+}
+
+function normalizePageContext(pageContext) {
+  return {
+    pageTitle: String(pageContext?.pageTitle ?? pageContext?.title ?? "").trim(),
+    pageUrl: String(pageContext?.pageUrl ?? pageContext?.url ?? "").trim()
+  };
+}
+
+function normalizeFreeformText(text) {
+  return String(text ?? "").trim();
+}
+
+function sortEntriesByCreatedAt(entries) {
+  return [...entries].sort((left, right) =>
+    String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? ""))
+  );
+}
+
+function limitHistoryEntries(entries) {
+  return sortEntriesByCreatedAt(entries).slice(0, HISTORY_ENTRY_LIMIT);
+}
+
+function dedupeGlossaryEntries(entries) {
+  const seen = new Set();
+  const result = [];
+
+  for (const entry of sortEntriesByCreatedAt(entries)) {
+    const normalizedText = normalizeEntryKey(entry?.text);
+    if (!normalizedText || seen.has(normalizedText)) {
+      continue;
+    }
+
+    seen.add(normalizedText);
+    result.push(entry);
+  }
+
+  return result;
+}
+
+function buildHistoryEntry(translationResult, pageContext = null) {
+  const cleanText = normalizeEntryText(translationResult?.input ?? translationResult?.text);
+  if (!cleanText || translationResult?.error) {
+    return null;
+  }
+
+  const normalizedPageContext = normalizePageContext(pageContext ?? translationResult);
+  return {
+    id: String(translationResult?.id ?? createEntryId()),
+    text: cleanText,
+    normalizedText: normalizeEntryKey(cleanText),
+    itemType: getEntryItemType(cleanText),
+    translationMode: normalizeTranslationMode(translationResult?.translationMode),
+    sourceLanguage: normalizeLanguageMetadata(translationResult?.sourceLanguage),
+    targetLanguage: normalizeLanguageMetadata(translationResult?.targetLanguage),
+    translations: normalizeTranslations(translationResult?.translations),
+    createdAt: String(translationResult?.createdAt ?? new Date().toISOString()),
+    sourceType: translationResult?.sourceType ?? null,
+    pageTitle: normalizedPageContext.pageTitle,
+    pageUrl: normalizedPageContext.pageUrl
+  };
+}
+
+function buildGlossaryEntry(text, translationResult = null, pageContext = null, overrides = {}) {
   const cleanText = normalizeEntryText(text);
   if (!cleanText) {
     throw new Error("No hay texto para guardar.");
   }
 
-  const stored = await browserApi.storage.local.get(["lastResult", SAVED_ENTRIES_KEY]);
+  const matchesInput = normalizeEntryText(translationResult?.input) === cleanText;
+  const normalizedPageContext = normalizePageContext({
+    ...(matchesInput ? translationResult : null),
+    ...pageContext,
+    pageTitle: overrides.pageTitle ?? pageContext?.pageTitle ?? translationResult?.pageTitle,
+    pageUrl: overrides.pageUrl ?? pageContext?.pageUrl ?? translationResult?.pageUrl
+  });
+  const createdAt = String(
+    overrides.createdAt ?? translationResult?.createdAt ?? new Date().toISOString()
+  );
+
+  return {
+    id: String(overrides.id ?? createEntryId()),
+    text: cleanText,
+    normalizedText: normalizeEntryKey(cleanText),
+    itemType: overrides.itemType ?? getEntryItemType(cleanText),
+    sourceLanguage: normalizeLanguageMetadata(
+      overrides.sourceLanguage ?? (matchesInput ? translationResult?.sourceLanguage : null)
+    ),
+    targetLanguage: normalizeLanguageMetadata(
+      overrides.targetLanguage ?? (matchesInput ? translationResult?.targetLanguage : null)
+    ),
+    translations: normalizeTranslations(
+      overrides.translations ?? (matchesInput ? translationResult?.translations : [])
+    ),
+    contextText: normalizeFreeformText(overrides.contextText),
+    note: normalizeFreeformText(overrides.note),
+    tags: normalizeTagList(overrides.tags),
+    status: normalizeGlossaryStatus(overrides.status),
+    favorite: overrides.favorite === true,
+    createdAt,
+    updatedAt: String(overrides.updatedAt ?? createdAt),
+    pageTitle: normalizedPageContext.pageTitle,
+    pageUrl: normalizedPageContext.pageUrl,
+    originHistoryId: String(overrides.originHistoryId ?? "").trim() || null
+  };
+}
+
+function normalizeStoredHistoryEntry(entry) {
+  return buildHistoryEntry(entry, entry);
+}
+
+function normalizeStoredGlossaryEntry(entry) {
+  const cleanText = normalizeEntryText(entry?.text);
+  if (!cleanText) {
+    return null;
+  }
+
+  return buildGlossaryEntry(cleanText, null, entry, {
+    id: entry.id,
+    itemType: entry.itemType ?? getEntryItemType(cleanText),
+    sourceLanguage: entry.sourceLanguage,
+    targetLanguage: entry.targetLanguage,
+    translations: entry.translations,
+    contextText: entry.contextText,
+    note: entry.note,
+    tags: entry.tags,
+    status: entry.status,
+    favorite: entry.favorite,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    pageTitle: entry.pageTitle,
+    pageUrl: entry.pageUrl,
+    originHistoryId: entry.originHistoryId
+  });
+}
+
+function buildLegacyGlossaryEntry(entry) {
+  const cleanText = normalizeEntryText(entry?.text);
+  if (!cleanText) {
+    return null;
+  }
+
+  return buildGlossaryEntry(cleanText, null, entry, {
+    id: entry.id,
+    sourceLanguage: entry.sourceLanguage,
+    translations: entry.translations,
+    createdAt: entry.createdAt,
+    updatedAt: entry.createdAt
+  });
+}
+
+async function ensureSavedCollectionsMigrated() {
+  if (didEnsureSavedCollectionsMigration) {
+    return;
+  }
+
+  const stored = await browserApi.storage.local.get([
+    TRANSLATION_HISTORY_KEY,
+    GLOSSARY_ENTRIES_KEY,
+    LEGACY_SAVED_ENTRIES_KEY
+  ]);
+  const historyEntries = limitHistoryEntries(
+    (Array.isArray(stored[TRANSLATION_HISTORY_KEY]) ? stored[TRANSLATION_HISTORY_KEY] : [])
+      .map(normalizeStoredHistoryEntry)
+      .filter(Boolean)
+  );
+  const glossaryEntries = dedupeGlossaryEntries(
+    (Array.isArray(stored[GLOSSARY_ENTRIES_KEY]) ? stored[GLOSSARY_ENTRIES_KEY] : [])
+      .map(normalizeStoredGlossaryEntry)
+      .filter(Boolean)
+  );
+  const migratedLegacyEntries = (
+    Array.isArray(stored[LEGACY_SAVED_ENTRIES_KEY]) ? stored[LEGACY_SAVED_ENTRIES_KEY] : []
+  )
+    .map(buildLegacyGlossaryEntry)
+    .filter(Boolean);
+  const nextGlossaryEntries = dedupeGlossaryEntries([
+    ...glossaryEntries,
+    ...migratedLegacyEntries
+  ]);
+
+  await browserApi.storage.local.set({
+    [TRANSLATION_HISTORY_KEY]: historyEntries,
+    [GLOSSARY_ENTRIES_KEY]: nextGlossaryEntries
+  });
+
+  if (stored[LEGACY_SAVED_ENTRIES_KEY] !== undefined) {
+    await browserApi.storage.local.remove(LEGACY_SAVED_ENTRIES_KEY);
+  }
+
+  didEnsureSavedCollectionsMigration = true;
+}
+
+async function getHistoryEntries() {
+  await ensureSavedCollectionsMigrated();
+  const stored = await browserApi.storage.local.get(TRANSLATION_HISTORY_KEY);
+  const entries = Array.isArray(stored[TRANSLATION_HISTORY_KEY]) ? stored[TRANSLATION_HISTORY_KEY] : [];
+  return limitHistoryEntries(entries.map(normalizeStoredHistoryEntry).filter(Boolean));
+}
+
+async function getGlossaryEntries() {
+  await ensureSavedCollectionsMigrated();
+  const stored = await browserApi.storage.local.get(GLOSSARY_ENTRIES_KEY);
+  const entries = Array.isArray(stored[GLOSSARY_ENTRIES_KEY]) ? stored[GLOSSARY_ENTRIES_KEY] : [];
+  return dedupeGlossaryEntries(entries.map(normalizeStoredGlossaryEntry).filter(Boolean));
+}
+
+async function appendHistoryEntry(translationResult, pageContext = null) {
+  const entry = buildHistoryEntry(translationResult, pageContext);
+  if (!entry) {
+    return null;
+  }
+
+  const entries = await getHistoryEntries();
+  const nextEntries = limitHistoryEntries([entry, ...entries]);
+  await browserApi.storage.local.set({ [TRANSLATION_HISTORY_KEY]: nextEntries });
+  return entry;
+}
+
+async function saveEntry(text, { pageContext = null, translationResult = null, originHistoryId = null } = {}) {
+  const cleanText = normalizeEntryText(text);
+  if (!cleanText) {
+    throw new Error("No hay texto para guardar.");
+  }
+
+  await ensureSavedCollectionsMigrated();
+  const stored = await browserApi.storage.local.get(["lastResult", GLOSSARY_ENTRIES_KEY]);
   const lastResult = stored.lastResult ?? null;
-  const entries = Array.isArray(stored[SAVED_ENTRIES_KEY]) ? stored[SAVED_ENTRIES_KEY] : [];
-  const existingEntry = entries.find((entry) => normalizeEntryText(entry.text) === cleanText);
+  const glossaryEntries = Array.isArray(stored[GLOSSARY_ENTRIES_KEY]) ? stored[GLOSSARY_ENTRIES_KEY] : [];
+  const existingEntry = glossaryEntries.find(
+    (entry) => normalizeEntryKey(entry.text) === normalizeEntryKey(cleanText)
+  );
 
   if (existingEntry) {
     return {
-      entry: existingEntry,
+      entry: normalizeStoredGlossaryEntry(existingEntry),
       duplicate: true
     };
   }
 
-  const entry = buildSavedEntry(cleanText, lastResult);
-  const nextEntries = [entry, ...entries];
-  await browserApi.storage.local.set({ [SAVED_ENTRIES_KEY]: nextEntries });
+  const entry = buildGlossaryEntry(cleanText, translationResult ?? lastResult, pageContext, {
+    originHistoryId
+  });
+  const nextEntries = dedupeGlossaryEntries([entry, ...glossaryEntries]);
+  await browserApi.storage.local.set({ [GLOSSARY_ENTRIES_KEY]: nextEntries });
 
   return {
     entry,
@@ -1357,17 +1637,73 @@ async function saveEntry(text) {
   };
 }
 
-async function deleteSavedEntry(entryId) {
-  const entries = await getSavedEntries();
+async function updateGlossaryEntry(entryId, updates = {}) {
+  const entries = await getGlossaryEntries();
+  const existingEntry = entries.find((entry) => entry.id === entryId);
+
+  if (!existingEntry) {
+    throw new Error("No se encontró la entrada del glosario.");
+  }
+
+  const nextEntry = buildGlossaryEntry(existingEntry.text, null, existingEntry, {
+    ...existingEntry,
+    contextText: updates.contextText ?? existingEntry.contextText,
+    note: updates.note ?? existingEntry.note,
+    tags: updates.tags ?? existingEntry.tags,
+    status: updates.status ?? existingEntry.status,
+    favorite: updates.favorite ?? existingEntry.favorite,
+    updatedAt: new Date().toISOString()
+  });
+  const nextEntries = entries.map((entry) => (entry.id === entryId ? nextEntry : entry));
+  await browserApi.storage.local.set({ [GLOSSARY_ENTRIES_KEY]: nextEntries });
+  return nextEntry;
+}
+
+async function deleteHistoryEntry(entryId) {
+  const entries = await getHistoryEntries();
   const nextEntries = entries.filter((entry) => entry.id !== entryId);
-  await browserApi.storage.local.set({ [SAVED_ENTRIES_KEY]: nextEntries });
+  await browserApi.storage.local.set({ [TRANSLATION_HISTORY_KEY]: nextEntries });
   return nextEntries;
 }
 
-async function translateAndStore(text, sourceLanguage = "auto") {
+async function deleteGlossaryEntry(entryId) {
+  const entries = await getGlossaryEntries();
+  const nextEntries = entries.filter((entry) => entry.id !== entryId);
+  await browserApi.storage.local.set({ [GLOSSARY_ENTRIES_KEY]: nextEntries });
+  return nextEntries;
+}
+
+async function promoteHistoryEntry(entryId) {
+  const entries = await getHistoryEntries();
+  const historyEntry = entries.find((entry) => entry.id === entryId);
+
+  if (!historyEntry) {
+    throw new Error("No se encontró la entrada del historial.");
+  }
+
+  return saveEntry(historyEntry.text, {
+    pageContext: historyEntry,
+    translationResult: {
+      input: historyEntry.text,
+      sourceLanguage: historyEntry.sourceLanguage,
+      targetLanguage: historyEntry.targetLanguage,
+      translations: historyEntry.translations,
+      createdAt: historyEntry.createdAt
+    },
+    originHistoryId: historyEntry.id
+  });
+}
+
+async function translateAndStore(text, sourceLanguage = "auto", pageContext = null) {
   const result = await buildTranslationResult(text, sourceLanguage);
-  await setLastResult(result);
+  await setLastResult(result, pageContext);
+  await appendHistoryEntry(result, pageContext);
   return result;
+}
+
+async function getActivePageContext() {
+  const activeTab = await getActiveTab();
+  return normalizePageContext(activeTab);
 }
 
 async function openResultsTab() {
@@ -1528,6 +1864,7 @@ async function createContextMenu() {
 
 async function initializeExtension() {
   await ensureDefaultSettings();
+  await ensureSavedCollectionsMigrated();
   await createContextMenu();
 }
 
@@ -1562,6 +1899,7 @@ browserApi.windows?.onRemoved?.addListener((windowId) => {
 
 browserApi.contextMenus.onClicked.addListener(async (info) => {
   const selectedText = String(info.selectionText ?? "").trim();
+  const pageContext = await getActivePageContext();
 
   if (info.menuItemId === SAVE_CONTEXT_MENU_ID) {
     try {
@@ -1569,7 +1907,7 @@ browserApi.contextMenus.onClicked.addListener(async (info) => {
       if (!selectedText) {
         await setLastError("", "No se encontró una selección válida para guardar.");
       } else {
-        const result = await saveEntry(selectedText);
+        const result = await saveEntry(selectedText, { pageContext });
         await browserApi.storage.local.set({
           saveFeedback: {
             text: selectedText,
@@ -1597,7 +1935,7 @@ browserApi.contextMenus.onClicked.addListener(async (info) => {
 
   try {
     await setLastSelection(selectedText);
-    await translateAndStore(selectedText, "auto");
+    await translateAndStore(selectedText, "auto", pageContext);
   } catch (error) {
     await setLastError(selectedText, error.message);
   }
@@ -1636,7 +1974,7 @@ browserApi.commands.onCommand.addListener(async (command) => {
     }
 
     try {
-      await translateAndStore(selectedText, "auto");
+      await translateAndStore(selectedText, "auto", normalizePageContext(activeTab));
     } catch (error) {
       await setLastError(selectedText, error.message);
     }
@@ -1660,7 +1998,7 @@ browserApi.commands.onCommand.addListener(async (command) => {
   }
 
   try {
-    await translateAndStore(selectedText, "auto");
+    await translateAndStore(selectedText, "auto", await getActivePageContext());
   } catch (error) {
     await setLastError(selectedText, error.message);
   }
@@ -1668,7 +2006,7 @@ browserApi.commands.onCommand.addListener(async (command) => {
   await openResultsTab();
 });
 
-browserApi.runtime.onMessage.addListener((message) => {
+browserApi.runtime.onMessage.addListener((message, sender) => {
   switch (message?.type) {
     case "translate-text":
       return buildTranslationResult(message.text, message.sourceLanguage ?? "auto", {
@@ -1681,7 +2019,9 @@ browserApi.runtime.onMessage.addListener((message) => {
         maxTextLength:
           message.sourceType === "dom-block" ? MAX_DOM_BLOCK_TEXT_LENGTH : undefined
       }).then(async (result) => {
-        await setLastResult(result);
+        const pageContext = sender?.tab ? normalizePageContext(sender.tab) : null;
+        await setLastResult(result, pageContext);
+        await appendHistoryEntry(result, pageContext);
         return result;
       });
 
@@ -1707,11 +2047,23 @@ browserApi.runtime.onMessage.addListener((message) => {
     case "save-entry":
       return saveEntry(message.text);
 
-    case "get-saved-entries":
-      return getSavedEntries();
+    case "get-history-entries":
+      return getHistoryEntries();
 
-    case "delete-saved-entry":
-      return deleteSavedEntry(message.entryId);
+    case "get-glossary-entries":
+      return getGlossaryEntries();
+
+    case "promote-history-entry":
+      return promoteHistoryEntry(message.entryId);
+
+    case "update-glossary-entry":
+      return updateGlossaryEntry(message.entryId, message.updates ?? {});
+
+    case "delete-history-entry":
+      return deleteHistoryEntry(message.entryId);
+
+    case "delete-glossary-entry":
+      return deleteGlossaryEntry(message.entryId);
 
     case "get-save-feedback":
       return browserApi.storage.local.get("saveFeedback").then(async (stored) => {
