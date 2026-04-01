@@ -67,6 +67,7 @@
               <div class="column-head-actions">
                 <button id="useSelectionButton" class="text-action" type="button">Usar selección</button>
                 <button id="pickBlockButton" class="text-action" type="button">Elegir bloque</button>
+                <button id="uploadImageButton" class="text-action" type="button">Subir imagen</button>
               </div>
             </div>
             <div class="language-control">
@@ -79,6 +80,8 @@
               </select>
             </div>
           </div>
+          <input id="ocrImageInput" class="visually-hidden" type="file" accept="image/*" />
+          <p id="ocrStatusMessage" class="ocr-status-message" aria-live="polite"></p>
           <textarea
             id="inputText"
             class="compact-textarea"
@@ -90,7 +93,7 @@
             <button id="translateButton" class="primary-button compact-button" type="button">Traducir</button>
           </div>
           <p class="helper-copy">
-            En PDF usa el menú contextual si el navegador expone la selección. Si no, copia y pega aquí. Usa Cmd/Ctrl+Enter para traducir al instante.
+            En PDF usa el menú contextual si el navegador expone la selección. También puedes subir o pegar una captura en el popup. Usa Cmd/Ctrl+Enter para traducir al instante.
           </p>
         </section>
 
@@ -123,6 +126,7 @@
     </main>
 
     <script src="browser-api.js"></script>
+    <script src="tesseract-adapter.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

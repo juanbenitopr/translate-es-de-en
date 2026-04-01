@@ -79,6 +79,7 @@ const GERMAN_COMMON_WORDS = new Set(
   `.trim().split(/\s+/u)
 );
 let pinnedPopupWindowId = null;
+let initializationPromise = null;
 
 function normalizeLanguageCode(languageCode) {
   return String(languageCode || "")
@@ -1479,6 +1480,25 @@ async function startDomBlockPicker(translationOptions = {}) {
   return { started: true };
 }
 
+function createContextMenuItem(options) {
+  return new Promise((resolve, reject) => {
+    browserApi.contextMenus.create(options, () => {
+      const runtimeError = browserApi.runtime?.lastError;
+      if (!runtimeError) {
+        resolve();
+        return;
+      }
+
+      if (/duplicate id/i.test(String(runtimeError.message ?? ""))) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(runtimeError.message || "No se pudo crear el menú contextual."));
+    });
+  });
+}
+
 async function createContextMenu() {
   try {
     await browserApi.contextMenus.removeAll();
@@ -1486,22 +1506,32 @@ async function createContextMenu() {
     console.warn("No se pudieron limpiar los menús previos.", error);
   }
 
-  browserApi.contextMenus.create({
+  await createContextMenuItem({
     id: CONTEXT_MENU_ID,
     title: "Traducir selección ES/EN/DE",
     contexts: ["selection"]
   });
 
-  browserApi.contextMenus.create({
+  await createContextMenuItem({
     id: SAVE_CONTEXT_MENU_ID,
     title: "Guardar palabra o frase",
     contexts: ["selection"]
   });
 }
 
-async function initializeExtension() {
-  await ensureDefaultSettings();
-  await createContextMenu();
+function initializeExtension() {
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise = (async () => {
+    await ensureDefaultSettings();
+    await createContextMenu();
+  })().finally(() => {
+    initializationPromise = null;
+  });
+
+  return initializationPromise;
 }
 
 browserApi.runtime.onInstalled.addListener(() => {

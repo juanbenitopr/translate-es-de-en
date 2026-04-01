@@ -15,6 +15,9 @@ const outputTextElement = document.getElementById("outputText");
 const translateButton = document.getElementById("translateButton");
 const useSelectionButton = document.getElementById("useSelectionButton");
 const pickBlockButton = document.getElementById("pickBlockButton");
+const uploadImageButton = document.getElementById("uploadImageButton");
+const ocrImageInputElement = document.getElementById("ocrImageInput");
+const ocrStatusMessageElement = document.getElementById("ocrStatusMessage");
 const saveButton = document.getElementById("saveButton");
 const includeSynonymsElement = document.getElementById("includeSynonyms");
 const includeExamplesElement = document.getElementById("includeExamples");
@@ -27,12 +30,30 @@ const resultRootElement = document.getElementById("resultRoot");
 const shellElement = document.querySelector(".translator-shell");
 const extrasCopyElement = document.getElementById("extrasCopy");
 const AUTO_TRANSLATE_DELAY_MS = 3000;
+const OCR_TEXT_MIN_LENGTH = 3;
+const OCR_LANGUAGES_BY_SOURCE = {
+  auto: "spa+eng+deu",
+  es: "spa",
+  en: "eng",
+  de: "deu"
+};
+const OCR_STATUS_LABELS = {
+  initializing: "Inicializando OCR local...",
+  loading: "Cargando motor OCR...",
+  "loading tesseract core": "Cargando motor OCR...",
+  "loading language traineddata": "Cargando idiomas del OCR...",
+  initializing_api: "Preparando OCR local...",
+  recognizing_text: "Leyendo texto de la imagen..."
+};
 
 let popupSettings = null;
 let autoTranslateTimerId = null;
 let isTranslating = false;
+let isRunningOcr = false;
 let queuedAutoTranslate = false;
 let lastTranslationRequestKey = "";
+let ocrWorkerPromise = null;
+let ocrWorkerLanguages = "";
 
 function createElement(tagName, { className = "", textContent = null } = {}) {
   const element = document.createElement(tagName);
@@ -174,6 +195,11 @@ function setStatus(message) {
   statusMessageElement.textContent = message;
 }
 
+function setOcrStatus(message, tone = "info") {
+  ocrStatusMessageElement.textContent = message;
+  ocrStatusMessageElement.dataset.tone = tone;
+}
+
 function isWordWiseMode() {
   return normalizeTranslationMode(translationModeElement.value) === TRANSLATION_MODES.WORD_WISE;
 }
@@ -218,18 +244,30 @@ function syncWordWiseControls(isBusy = false) {
 
 function setBusyState(isBusy) {
   isTranslating = Boolean(isBusy);
+  translateButton.textContent = isBusy ? "Traduciendo..." : "Traducir";
+  syncUiBusyState();
+}
+
+function setOcrBusyState(isBusy) {
+  isRunningOcr = Boolean(isBusy);
+  uploadImageButton.textContent = isBusy ? "Leyendo..." : "Subir imagen";
+  syncUiBusyState();
+}
+
+function syncUiBusyState() {
+  const isBusy = isTranslating || isRunningOcr;
   translateButton.disabled = isBusy;
   useSelectionButton.disabled = isBusy;
   saveButton.disabled = isBusy;
   translationModeElement.disabled = isBusy;
   targetLanguageElement.disabled = isBusy;
   sourceLanguageElement.disabled = isBusy;
+  uploadImageButton.disabled = isBusy;
   if (shellElement.dataset.mode !== "pinned") {
     pinPopupButton.disabled = isBusy;
   }
 
   syncWordWiseControls(isBusy);
-  translateButton.textContent = isBusy ? "Traduciendo..." : "Traducir";
 }
 
 function clearAutoTranslateTimer() {
@@ -476,6 +514,136 @@ function renderResult(result) {
   renderFullTranslationResult(result);
 }
 
+function getTesseractApi() {
+  const tesseractApi = globalThis.Tesseract;
+  if (!tesseractApi?.createWorker) {
+    throw new Error("No se pudo cargar el motor OCR local.");
+  }
+
+  return tesseractApi;
+}
+
+function getOcrLanguageKey() {
+  return OCR_LANGUAGES_BY_SOURCE[sourceLanguageElement.value] || OCR_LANGUAGES_BY_SOURCE.auto;
+}
+
+function normalizeOcrText(text) {
+  return String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function isMeaningfulOcrText(text) {
+  const cleanText = normalizeOcrText(text);
+  return cleanText.length >= OCR_TEXT_MIN_LENGTH && /[\p{L}\p{N}]/u.test(cleanText);
+}
+
+function resetTranslationPreview(statusMessage) {
+  lastTranslationRequestKey = "";
+  outputTextElement.value = "";
+  renderEmptyState();
+  setStatus(statusMessage);
+}
+
+function updateOcrProgress(message) {
+  const normalizedStatus = String(message?.status ?? "").trim();
+  const statusKey = normalizedStatus.replace(/\s+/g, "_").toLowerCase();
+  const statusLabel = OCR_STATUS_LABELS[normalizedStatus] || OCR_STATUS_LABELS[statusKey];
+
+  if (!statusLabel) {
+    return;
+  }
+
+  if (typeof message.progress === "number" && statusKey === "recognizing_text") {
+    const progress = Math.max(0, Math.min(100, Math.round(message.progress * 100)));
+    setOcrStatus(`${statusLabel} ${progress}%`);
+    return;
+  }
+
+  setOcrStatus(statusLabel);
+}
+
+async function getOcrWorker(languageKey) {
+  const { createWorker } = getTesseractApi();
+  const workerPath = browserApi.runtime.getURL("vendor/tesseract/worker.min.js");
+  const corePath = browserApi.runtime.getURL("vendor/tesseract-core");
+  const langPath = browserApi.runtime.getURL("assets/tesseract/lang-data");
+
+  if (!ocrWorkerPromise) {
+    ocrWorkerPromise = createWorker(languageKey, 1, {
+      workerPath,
+      corePath,
+      langPath,
+      workerBlobURL: false,
+      logger: updateOcrProgress
+    });
+    ocrWorkerLanguages = languageKey;
+    return ocrWorkerPromise;
+  }
+
+  const worker = await ocrWorkerPromise;
+  if (ocrWorkerLanguages !== languageKey) {
+    setOcrStatus("Actualizando idiomas del OCR...");
+    await worker.reinitialize(languageKey, 1);
+    ocrWorkerLanguages = languageKey;
+  }
+
+  return worker;
+}
+
+async function runLocalOcr(file) {
+  if (!(file instanceof File)) {
+    return;
+  }
+
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Selecciona una imagen válida para ejecutar OCR.");
+  }
+
+  clearAutoTranslateTimer();
+  queuedAutoTranslate = false;
+  setOcrBusyState(true);
+  setOcrStatus(`Preparando OCR para ${file.name || "la imagen"}...`);
+
+  try {
+    const worker = await getOcrWorker(getOcrLanguageKey());
+    const {
+      data: { text }
+    } = await worker.recognize(file);
+    const normalizedText = normalizeOcrText(text);
+
+    if (!isMeaningfulOcrText(normalizedText)) {
+      throw new Error("No se detectó suficiente texto legible en la imagen.");
+    }
+
+    inputTextElement.value = normalizedText;
+    setOcrStatus("Texto extraído. Revisa el resultado y pulsa Traducir.", "success");
+    resetTranslationPreview("OCR local completado. Revisa el texto y pulsa Traducir.");
+  } finally {
+    setOcrBusyState(false);
+  }
+}
+
+function getImageFileFromClipboardEvent(event) {
+  const clipboardData = event?.clipboardData;
+  if (!clipboardData) {
+    return null;
+  }
+
+  const items = Array.from(clipboardData.items ?? []);
+  for (const item of items) {
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      return item.getAsFile();
+    }
+  }
+
+  const files = Array.from(clipboardData.files ?? []);
+  return files.find((file) => file.type.startsWith("image/")) ?? null;
+}
+
 async function fillFromActiveSelection({ scheduleTranslation = false } = {}) {
   const response = await browserApi.runtime.sendMessage({
     type: "get-active-selection"
@@ -517,6 +685,11 @@ async function translateCurrentInput(options = {}) {
     clearAutoTranslateTimer();
     queuedAutoTranslate = false;
     setStatus("Introduce o selecciona un texto antes de traducir.");
+    return;
+  }
+
+  if (isRunningOcr) {
+    setStatus("Espera a que termine el OCR antes de traducir.");
     return;
   }
 
@@ -616,6 +789,7 @@ async function saveCurrentInput() {
 async function initializePopup() {
   const searchParams = new URLSearchParams(window.location.search);
   const mode = searchParams.get("mode");
+  setOcrStatus("Selecciona o pega una imagen para extraer texto localmente.");
   if (mode === "tab" || mode === "pinned") {
     shellElement.dataset.mode = mode;
   }
@@ -672,6 +846,33 @@ translateButton.addEventListener("click", () => {
 useSelectionButton.addEventListener("click", () => {
   fillFromActiveSelection({ scheduleTranslation: true }).catch((error) => {
     setStatus(error.message || "No se pudo obtener la selección.");
+  });
+});
+
+uploadImageButton.addEventListener("click", () => {
+  ocrImageInputElement.click();
+});
+
+ocrImageInputElement.addEventListener("change", () => {
+  const [file] = Array.from(ocrImageInputElement.files ?? []);
+  ocrImageInputElement.value = "";
+
+  runLocalOcr(file).catch((error) => {
+    setOcrBusyState(false);
+    setOcrStatus(error.message || "No se pudo completar el OCR local.", "error");
+  });
+});
+
+document.addEventListener("paste", (event) => {
+  const imageFile = getImageFileFromClipboardEvent(event);
+  if (!imageFile) {
+    return;
+  }
+
+  event.preventDefault();
+  runLocalOcr(imageFile).catch((error) => {
+    setOcrBusyState(false);
+    setOcrStatus(error.message || "No se pudo completar el OCR local.", "error");
   });
 });
 
@@ -777,6 +978,16 @@ openOptionsButton.addEventListener("click", () => {
 
 openStandaloneButton.addEventListener("click", () => {
   browserApi.runtime.sendMessage({ type: "open-results-tab" });
+});
+
+window.addEventListener("beforeunload", () => {
+  if (!ocrWorkerPromise) {
+    return;
+  }
+
+  ocrWorkerPromise
+    .then((worker) => worker.terminate())
+    .catch(() => {});
 });
 
 initializePopup().catch((error) => {

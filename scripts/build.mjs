@@ -10,6 +10,7 @@ const targetManifests = {
 };
 
 const sharedPaths = [
+  "assets",
   "background.js",
   "browser-api.js",
   "content-script.js",
@@ -20,13 +21,25 @@ const sharedPaths = [
   "popup.html",
   "popup.js",
   "saved.html",
-  "saved.js"
+  "saved.js",
+  "tesseract-adapter.js"
 ];
 
 const targetExtraPaths = {
   chrome: ["background.chrome.js"],
   firefox: []
 };
+
+const generatedAssetCopies = [
+  {
+    source: "node_modules/tesseract.js/dist",
+    target: "vendor/tesseract"
+  },
+  {
+    source: "node_modules/tesseract.js-core",
+    target: "vendor/tesseract-core"
+  }
+];
 
 const requestedTargets = process.argv.slice(2);
 const targetsToBuild = requestedTargets.length
@@ -59,6 +72,17 @@ for (const target of targetsToBuild) {
     path.join(rootDir, targetManifests[target]),
     path.join(outDir, "manifest.json")
   );
+
+  for (const asset of generatedAssetCopies) {
+    const sourcePath = path.join(rootDir, asset.source);
+    const outputPath = path.join(outDir, asset.target);
+
+    if (!existsSync(sourcePath)) {
+      throw new Error(`No se ha encontrado ${asset.source} al preparar la build ${target}.`);
+    }
+
+    cpSync(sourcePath, outputPath, { recursive: true });
+  }
 
   console.log(`Build lista: dist/${target}`);
 }
