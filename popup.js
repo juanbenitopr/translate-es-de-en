@@ -8,7 +8,9 @@ const WORD_WISE_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 const sourceLanguageElement = document.getElementById("sourceLanguage");
 const targetLanguageElement = document.getElementById("targetLanguage");
+const swapLanguagesButton = document.getElementById("swapLanguagesButton");
 const translationModeElement = document.getElementById("translationMode");
+const wordWiseLevelGroupElement = document.getElementById("wordWiseLevelGroup");
 const wordWiseLevelElement = document.getElementById("wordWiseLevel");
 const inputTextElement = document.getElementById("inputText");
 const outputTextElement = document.getElementById("outputText");
@@ -16,8 +18,6 @@ const translateButton = document.getElementById("translateButton");
 const useSelectionButton = document.getElementById("useSelectionButton");
 const pickBlockButton = document.getElementById("pickBlockButton");
 const saveButton = document.getElementById("saveButton");
-const includeSynonymsElement = document.getElementById("includeSynonyms");
-const includeExamplesElement = document.getElementById("includeExamples");
 const openSavedButton = document.getElementById("openSavedButton");
 const pinPopupButton = document.getElementById("pinPopupButton");
 const openOptionsButton = document.getElementById("openOptionsButton");
@@ -27,12 +27,14 @@ const resultRootElement = document.getElementById("resultRoot");
 const shellElement = document.querySelector(".translator-shell");
 const extrasCopyElement = document.getElementById("extrasCopy");
 const AUTO_TRANSLATE_DELAY_MS = 3000;
+const MANUAL_LANGUAGE_CODES = ["es", "en", "de"];
 
 let popupSettings = null;
 let autoTranslateTimerId = null;
 let isTranslating = false;
 let queuedAutoTranslate = false;
 let lastTranslationRequestKey = "";
+let lastDisplayedResult = null;
 
 function createElement(tagName, { className = "", textContent = null } = {}) {
   const element = document.createElement(tagName);
@@ -170,12 +172,25 @@ function normalizeWordWiseLevel(level) {
   return WORD_WISE_LEVELS.includes(normalizedLevel) ? normalizedLevel : "B1";
 }
 
+function normalizeSupportedLanguageCode(languageCode) {
+  const normalizedLanguageCode = String(languageCode ?? "").trim().toLowerCase();
+  return MANUAL_LANGUAGE_CODES.includes(normalizedLanguageCode) ? normalizedLanguageCode : null;
+}
+
 function setStatus(message) {
   statusMessageElement.textContent = message;
 }
 
 function isWordWiseMode() {
   return normalizeTranslationMode(translationModeElement.value) === TRANSLATION_MODES.WORD_WISE;
+}
+
+function shouldIncludeSynonyms() {
+  return popupSettings?.defaultIncludeSynonyms !== false;
+}
+
+function shouldIncludeExamples() {
+  return popupSettings?.defaultIncludeExamples !== false;
 }
 
 function syncWordWiseControls(isBusy = false) {
@@ -206,14 +221,14 @@ function syncWordWiseControls(isBusy = false) {
     sourceLanguageElement.value = wordWiseEnabled ? "de" : "auto";
   }
 
+  wordWiseLevelGroupElement.hidden = !wordWiseEnabled;
   wordWiseLevelElement.disabled = isBusy || !wordWiseEnabled;
-  includeSynonymsElement.disabled = isBusy || wordWiseEnabled;
-  includeExamplesElement.disabled = isBusy || wordWiseEnabled;
   pickBlockButton.disabled = isBusy || wordWiseEnabled;
+  swapLanguagesButton.disabled = isBusy;
 
   extrasCopyElement.textContent = wordWiseEnabled
     ? "Word Wise solo funciona con texto en alemán y anota palabras difíciles según el nivel CEFR."
-    : "Los sinónimos se buscan para palabras sueltas. Los ejemplos usan el idioma origen.";
+    : "Los sinónimos y ejemplos del resultado se configuran en Opciones.";
 }
 
 function setBusyState(isBusy) {
@@ -252,8 +267,8 @@ function getCurrentTranslationRequestKey() {
     targetLanguage: targetLanguageElement.value,
     translationMode,
     wordWiseLevel: normalizeWordWiseLevel(wordWiseLevelElement.value),
-    includeSynonyms: translationMode === TRANSLATION_MODES.FULL && includeSynonymsElement.checked,
-    includeExamples: translationMode === TRANSLATION_MODES.FULL && includeExamplesElement.checked
+    includeSynonyms: translationMode === TRANSLATION_MODES.FULL && shouldIncludeSynonyms(),
+    includeExamples: translationMode === TRANSLATION_MODES.FULL && shouldIncludeExamples()
   });
 }
 
@@ -298,10 +313,77 @@ function getPopupDraft() {
     sourceLanguage: sourceLanguageElement.value,
     targetLanguage: targetLanguageElement.value,
     translationMode: normalizeTranslationMode(translationModeElement.value),
-    wordWiseLevel: normalizeWordWiseLevel(wordWiseLevelElement.value),
-    includeSynonyms: includeSynonymsElement.checked,
-    includeExamples: includeExamplesElement.checked
+    wordWiseLevel: normalizeWordWiseLevel(wordWiseLevelElement.value)
   };
+}
+
+function getSwapSourceLanguage() {
+  const selectedSourceLanguage = normalizeSupportedLanguageCode(sourceLanguageElement.value);
+  if (selectedSourceLanguage) {
+    return selectedSourceLanguage;
+  }
+
+  if (lastDisplayedResult?.input !== inputTextElement.value.trim()) {
+    return null;
+  }
+
+  return normalizeSupportedLanguageCode(lastDisplayedResult?.sourceLanguage?.code);
+}
+
+function resetResultPreview(message) {
+  outputTextElement.value = "";
+  setChildren(
+    resultRootElement,
+    createElement("div", {
+      className: "empty-card",
+      textContent: message
+    })
+  );
+}
+
+function swapTranslationDirection() {
+  const currentTargetLanguage = normalizeSupportedLanguageCode(targetLanguageElement.value);
+  const currentSourceLanguage = getSwapSourceLanguage();
+
+  if (!currentTargetLanguage || !currentSourceLanguage) {
+    setStatus(
+      "Para invertir la dirección con origen automático, primero traduce el texto o selecciona el idioma origen manualmente."
+    );
+    return;
+  }
+
+  const currentInputText = inputTextElement.value;
+  const currentOutputText = outputTextElement.value.trim();
+
+  clearAutoTranslateTimer();
+  queuedAutoTranslate = false;
+
+  if (isWordWiseMode()) {
+    translationModeElement.value = TRANSLATION_MODES.FULL;
+  }
+
+  sourceLanguageElement.value = currentTargetLanguage;
+  targetLanguageElement.value = currentSourceLanguage;
+
+  if (currentOutputText) {
+    inputTextElement.value = currentOutputText;
+    outputTextElement.value = currentInputText.trim() ? currentInputText : "";
+  } else {
+    outputTextElement.value = "";
+  }
+
+  lastDisplayedResult = null;
+  syncWordWiseControls();
+  resetResultPreview(
+    "Dirección invertida. Ajusta el texto si quieres y la traducción se actualizará automáticamente."
+  );
+
+  if (inputTextElement.value.trim()) {
+    scheduleAutoTranslate();
+    return;
+  }
+
+  setStatus("Dirección invertida.");
 }
 
 function applySettingsDefaults(settings) {
@@ -310,8 +392,6 @@ function applySettingsDefaults(settings) {
   targetLanguageElement.value = settings.defaultTargetLanguage || "en";
   translationModeElement.value = normalizeTranslationMode(settings.defaultTranslationMode);
   wordWiseLevelElement.value = normalizeWordWiseLevel(settings.defaultWordWiseLevel);
-  includeSynonymsElement.checked = true;
-  includeExamplesElement.checked = true;
   syncWordWiseControls();
 }
 
@@ -330,8 +410,6 @@ function applyPopupDraft(draft) {
   targetLanguageElement.value = draft.targetLanguage || popupSettings?.defaultTargetLanguage || "en";
   translationModeElement.value = normalizeTranslationMode(draft.translationMode);
   wordWiseLevelElement.value = normalizeWordWiseLevel(draft.wordWiseLevel);
-  includeSynonymsElement.checked = draft.includeSynonyms !== false;
-  includeExamplesElement.checked = draft.includeExamples !== false;
   syncWordWiseControls();
   setStatus("Se ha recuperado el borrador de la ventana fija.");
   return true;
@@ -452,6 +530,7 @@ function renderWordWiseResult(result) {
 
 function renderResult(result) {
   resultRootElement.replaceChildren();
+  lastDisplayedResult = null;
 
   if (!result) {
     setStatus("Esperando texto para traducir.");
@@ -466,6 +545,7 @@ function renderResult(result) {
     return;
   }
 
+  lastDisplayedResult = result;
   applyResultPreferences(result);
 
   if (normalizeTranslationMode(result.translationMode) === TRANSLATION_MODES.WORD_WISE) {
@@ -555,8 +635,8 @@ async function translateCurrentInput(options = {}) {
       targetLanguage: targetLanguageElement.value,
       translationMode,
       wordWiseLevel: normalizeWordWiseLevel(wordWiseLevelElement.value),
-      includeSynonyms: translationMode === TRANSLATION_MODES.FULL && includeSynonymsElement.checked,
-      includeExamples: translationMode === TRANSLATION_MODES.FULL && includeExamplesElement.checked
+      includeSynonyms: translationMode === TRANSLATION_MODES.FULL && shouldIncludeSynonyms(),
+      includeExamples: translationMode === TRANSLATION_MODES.FULL && shouldIncludeExamples()
     });
     renderResult(result);
   } catch (error) {
@@ -682,6 +762,10 @@ pickBlockButton.addEventListener("click", () => {
   });
 });
 
+swapLanguagesButton.addEventListener("click", () => {
+  swapTranslationDirection();
+});
+
 inputTextElement.addEventListener("input", () => {
   const hasText = Boolean(inputTextElement.value.trim());
   if (!hasText) {
@@ -727,18 +811,6 @@ translationModeElement.addEventListener("change", () => {
 
 wordWiseLevelElement.addEventListener("change", () => {
   wordWiseLevelElement.value = normalizeWordWiseLevel(wordWiseLevelElement.value);
-  if (inputTextElement.value.trim()) {
-    scheduleAutoTranslate();
-  }
-});
-
-includeSynonymsElement.addEventListener("change", () => {
-  if (inputTextElement.value.trim()) {
-    scheduleAutoTranslate();
-  }
-});
-
-includeExamplesElement.addEventListener("change", () => {
   if (inputTextElement.value.trim()) {
     scheduleAutoTranslate();
   }

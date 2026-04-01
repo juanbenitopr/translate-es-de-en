@@ -146,7 +146,7 @@
     },
     contextMenus: {
       ...chromeApi.contextMenus,
-      create: chromeApi.contextMenus.create.bind(chromeApi.contextMenus),
+      create: promisify(chromeApi.contextMenus, "create"),
       onClicked: chromeApi.contextMenus.onClicked,
       removeAll: promisify(chromeApi.contextMenus, "removeAll")
     },

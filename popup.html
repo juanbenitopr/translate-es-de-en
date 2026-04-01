@@ -35,7 +35,7 @@
             <option value="word-wise">Word Wise</option>
           </select>
         </div>
-        <div class="inline-control-group">
+        <div id="wordWiseLevelGroup" class="inline-control-group" hidden>
           <label class="mini-label" for="wordWiseLevel">Nivel</label>
           <select id="wordWiseLevel" class="header-select compact-select">
             <option value="A1">A1</option>
@@ -46,16 +46,8 @@
             <option value="C2">C2</option>
           </select>
         </div>
-        <label class="option-chip" for="includeSynonyms">
-          <input id="includeSynonyms" type="checkbox" checked />
-          <span>Sinónimos</span>
-        </label>
-        <label class="option-chip" for="includeExamples">
-          <input id="includeExamples" type="checkbox" checked />
-          <span>Ejemplos</span>
-        </label>
         <p id="extrasCopy" class="extras-copy">
-          Los sinónimos se buscan para palabras sueltas. Los ejemplos usan el idioma origen.
+          Los sinónimos y ejemplos del resultado se configuran en Opciones.
         </p>
       </section>
 
@@ -71,12 +63,23 @@
             </div>
             <div class="language-control">
               <label class="mini-label" for="sourceLanguage">Origen</label>
-              <select id="sourceLanguage" class="header-select">
-                <option value="auto">Auto</option>
-                <option value="es">Español</option>
-                <option value="en">English</option>
-                <option value="de">Deutsch</option>
-              </select>
+              <div class="language-control-row">
+                <select id="sourceLanguage" class="header-select">
+                  <option value="auto">Auto</option>
+                  <option value="es">Español</option>
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                </select>
+                <button
+                  id="swapLanguagesButton"
+                  class="icon-button swap-languages-button"
+                  type="button"
+                  title="Intercambiar idioma origen y destino"
+                  aria-label="Intercambiar idioma origen y destino"
+                >
+                  ⇄
+                </button>
+              </div>
             </div>
           </div>
           <textarea

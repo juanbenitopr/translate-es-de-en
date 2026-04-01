@@ -9,6 +9,7 @@ WebExtension orientada a traducir palabras y frases entre español, inglés y al
 - Guardado de palabras y frases desde popup o menú contextual para repasarlas más tarde.
 - Popup manual para pegar texto y traducirlo.
 - Selección de idioma origen y destino directamente en la cabecera de cada panel del popup.
+- Cambio rápido de dirección en el popup para pasar de "traducir desde este idioma" a "cómo se dice esto en el otro idioma".
 - Opción de chincheta para abrir una ventana fija que no se cierra al perder el foco.
 - Atajos de teclado:
   - `Alt+Shift+T` para traducir la selección actual.

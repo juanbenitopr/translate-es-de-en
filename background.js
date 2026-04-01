@@ -26,7 +26,9 @@ const DEFAULT_SETTINGS = {
   requestTimeoutMs: 15000,
   defaultTranslationMode: "full",
   defaultWordWiseLevel: "B1",
-  defaultTargetLanguage: "en"
+  defaultTargetLanguage: "en",
+  defaultIncludeSynonyms: true,
+  defaultIncludeExamples: true
 };
 const MAX_TEXT_LENGTH = 1500;
 const MAX_DOM_BLOCK_TEXT_LENGTH = 5000;
@@ -79,6 +81,7 @@ const GERMAN_COMMON_WORDS = new Set(
   `.trim().split(/\s+/u)
 );
 let pinnedPopupWindowId = null;
+let extensionInitializationPromise = null;
 
 function normalizeLanguageCode(languageCode) {
   return String(languageCode || "")
@@ -103,6 +106,14 @@ function normalizeTranslationMode(translationMode) {
 function normalizeWordWiseLevel(level) {
   const normalizedLevel = String(level ?? "").trim().toUpperCase();
   return WORD_WISE_LEVELS.includes(normalizedLevel) ? normalizedLevel : "B1";
+}
+
+function normalizeBooleanPreference(value, fallback = true) {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return value !== false;
 }
 
 function normalizeUrlForComparison(url) {
@@ -196,7 +207,15 @@ function migrateLegacySettings(settings) {
     defaultTranslationMode: normalizeTranslationMode(baseSettings.defaultTranslationMode),
     defaultWordWiseLevel: normalizeWordWiseLevel(baseSettings.defaultWordWiseLevel),
     defaultTargetLanguage:
-      normalizeLanguageCode(baseSettings.defaultTargetLanguage) || DEFAULT_SETTINGS.defaultTargetLanguage
+      normalizeLanguageCode(baseSettings.defaultTargetLanguage) || DEFAULT_SETTINGS.defaultTargetLanguage,
+    defaultIncludeSynonyms: normalizeBooleanPreference(
+      baseSettings.defaultIncludeSynonyms,
+      DEFAULT_SETTINGS.defaultIncludeSynonyms
+    ),
+    defaultIncludeExamples: normalizeBooleanPreference(
+      baseSettings.defaultIncludeExamples,
+      DEFAULT_SETTINGS.defaultIncludeExamples
+    )
   };
 }
 
@@ -1109,6 +1128,14 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
   const wordWiseLevel = normalizeWordWiseLevel(
     options.wordWiseLevel ?? settings.defaultWordWiseLevel
   );
+  const includeSynonyms = normalizeBooleanPreference(
+    options.includeSynonyms,
+    settings.defaultIncludeSynonyms
+  );
+  const includeExamples = normalizeBooleanPreference(
+    options.includeExamples,
+    settings.defaultIncludeExamples
+  );
   const requestedTargetLanguage = normalizeLanguageCode(options.targetLanguage);
   let sourceLanguage =
     requestedSourceLanguage === "auto"
@@ -1165,7 +1192,10 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
       : Promise.resolve([]);
   const lexicalPromise =
     translationMode === TRANSLATION_MODES.FULL
-      ? buildLexicalInsights(cleanText, sourceLanguage, settings, options)
+      ? buildLexicalInsights(cleanText, sourceLanguage, settings, {
+          includeSynonyms,
+          includeExamples
+        })
       : Promise.resolve({
           synonyms: [],
           examples: [],
@@ -1335,10 +1365,7 @@ async function deleteSavedEntry(entryId) {
 }
 
 async function translateAndStore(text, sourceLanguage = "auto") {
-  const result = await buildTranslationResult(text, sourceLanguage, {
-    includeSynonyms: true,
-    includeExamples: true
-  });
+  const result = await buildTranslationResult(text, sourceLanguage);
   await setLastResult(result);
   return result;
 }
@@ -1486,13 +1513,13 @@ async function createContextMenu() {
     console.warn("No se pudieron limpiar los menús previos.", error);
   }
 
-  browserApi.contextMenus.create({
+  await browserApi.contextMenus.create({
     id: CONTEXT_MENU_ID,
     title: "Traducir selección ES/EN/DE",
     contexts: ["selection"]
   });
 
-  browserApi.contextMenus.create({
+  await browserApi.contextMenus.create({
     id: SAVE_CONTEXT_MENU_ID,
     title: "Guardar palabra o frase",
     contexts: ["selection"]
@@ -1504,14 +1531,25 @@ async function initializeExtension() {
   await createContextMenu();
 }
 
+function ensureExtensionInitialized() {
+  if (!extensionInitializationPromise) {
+    extensionInitializationPromise = initializeExtension().catch((error) => {
+      extensionInitializationPromise = null;
+      throw error;
+    });
+  }
+
+  return extensionInitializationPromise;
+}
+
 browserApi.runtime.onInstalled.addListener(() => {
-  initializeExtension().catch((error) => {
+  ensureExtensionInitialized().catch((error) => {
     console.error("Error al inicializar la extensión", error);
   });
 });
 
 browserApi.runtime.onStartup?.addListener(() => {
-  initializeExtension().catch((error) => {
+  ensureExtensionInitialized().catch((error) => {
     console.error("Error al recrear el menú de contexto", error);
   });
 });
@@ -1705,6 +1743,6 @@ browserApi.runtime.onMessage.addListener((message) => {
   }
 });
 
-initializeExtension().catch((error) => {
+ensureExtensionInitialized().catch((error) => {
   console.error("Error al arrancar la extensión", error);
 });

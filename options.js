@@ -7,7 +7,9 @@ const DEFAULT_SETTINGS = {
   requestTimeoutMs: 15000,
   defaultTranslationMode: "full",
   defaultWordWiseLevel: "B1",
-  defaultTargetLanguage: "en"
+  defaultTargetLanguage: "en",
+  defaultIncludeSynonyms: true,
+  defaultIncludeExamples: true
 };
 const MYMEMORY_PRESET = {
   apiBaseUrl: "https://api.mymemory.translated.net",
@@ -35,6 +37,8 @@ const requestTimeoutMsElement = document.getElementById("requestTimeoutMs");
 const defaultTranslationModeElement = document.getElementById("defaultTranslationMode");
 const defaultWordWiseLevelElement = document.getElementById("defaultWordWiseLevel");
 const defaultTargetLanguageElement = document.getElementById("defaultTargetLanguage");
+const defaultIncludeSynonymsElement = document.getElementById("defaultIncludeSynonyms");
+const defaultIncludeExamplesElement = document.getElementById("defaultIncludeExamples");
 const saveButton = document.getElementById("saveButton");
 const resetButton = document.getElementById("resetButton");
 const useFairTranslateButton = document.getElementById("useFairTranslateButton");
@@ -59,6 +63,8 @@ function fillForm(settings) {
   defaultTranslationModeElement.value = settings.defaultTranslationMode || DEFAULT_SETTINGS.defaultTranslationMode;
   defaultWordWiseLevelElement.value = settings.defaultWordWiseLevel || DEFAULT_SETTINGS.defaultWordWiseLevel;
   defaultTargetLanguageElement.value = settings.defaultTargetLanguage || DEFAULT_SETTINGS.defaultTargetLanguage;
+  defaultIncludeSynonymsElement.checked = settings.defaultIncludeSynonyms !== false;
+  defaultIncludeExamplesElement.checked = settings.defaultIncludeExamples !== false;
 }
 
 function applyTranslationPreset(preset) {
@@ -91,7 +97,9 @@ async function saveSettings() {
     requestTimeoutMs: Number.parseInt(requestTimeoutMsElement.value, 10) || DEFAULT_SETTINGS.requestTimeoutMs,
     defaultTranslationMode: defaultTranslationModeElement.value || DEFAULT_SETTINGS.defaultTranslationMode,
     defaultWordWiseLevel: defaultWordWiseLevelElement.value || DEFAULT_SETTINGS.defaultWordWiseLevel,
-    defaultTargetLanguage: defaultTargetLanguageElement.value || DEFAULT_SETTINGS.defaultTargetLanguage
+    defaultTargetLanguage: defaultTargetLanguageElement.value || DEFAULT_SETTINGS.defaultTargetLanguage,
+    defaultIncludeSynonyms: defaultIncludeSynonymsElement.checked,
+    defaultIncludeExamples: defaultIncludeExamplesElement.checked
   };
 
   const savedSettings = await browserApi.runtime.sendMessage({

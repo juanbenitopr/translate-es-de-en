@@ -60,6 +60,16 @@
           <option value="en" selected>English</option>
         </select>
 
+        <label class="field-label">Recursos léxicos en el popup</label>
+        <label class="option-chip" for="defaultIncludeSynonyms">
+          <input id="defaultIncludeSynonyms" type="checkbox" checked />
+          <span>Mostrar sinónimos cuando aplique</span>
+        </label>
+        <label class="option-chip" for="defaultIncludeExamples">
+          <input id="defaultIncludeExamples" type="checkbox" checked />
+          <span>Mostrar ejemplos cuando aplique</span>
+        </label>
+
         <div class="button-row">
           <button id="resetButton" class="secondary-button" type="button">Restablecer</button>
           <button id="saveButton" class="primary-button" type="button">Guardar</button>
@@ -70,7 +80,9 @@
           no te encaja o deja de responder, configura aquí tu instancia propia o la de otro proveedor compatible.
           También puedes probar MyMemory con el preset rápido, aunque suele ir mejor para frases cortas y tiene
           límites más estrictos. Si eliges DeepL, recuerda que necesitas una API key y que para uso serio conviene
-          no exponerla en código cliente distribuido. Word Wise solo se aplica a texto detectado como alemán.
+          no exponerla en código cliente distribuido. Word Wise solo se aplica a texto detectado como alemán. Los
+          sinónimos suelen encajar mejor con palabras sueltas y los ejemplos usan el idioma origen detectado o
+          seleccionado.
         </p>
         <p id="optionsStatus" class="status-message">Cargando configuración…</p>
       </section>

@@ -140,6 +140,14 @@ h2 {
   background: linear-gradient(135deg, rgba(53, 106, 230, 0.14), rgba(31, 143, 120, 0.14));
 }
 
+.swap-languages-button {
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
 .extras-bar {
   display: flex;
   flex-wrap: wrap;
@@ -234,6 +242,13 @@ h2 {
 .language-control {
   display: grid;
   gap: 4px;
+}
+
+.language-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .header-select {
@@ -503,10 +518,6 @@ h2 {
     padding: 10px;
   }
 
-  .translator-topbar {
-    grid-template-columns: 1fr;
-  }
-
   .topbar-actions,
   .topbar-actions-end {
     justify-content: space-between;
@@ -544,7 +555,7 @@ h2 {
 
 @media (max-width: 560px) {
   .popup-body {
-    min-width: 0;
+    min-width: 400px;
   }
 
   .translator-grid {
