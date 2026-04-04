@@ -47,9 +47,11 @@ const DEEPL_TARGET_LANGUAGE_CODES = {
 const LEGACY_SAVED_ENTRIES_KEY = "savedEntries";
 const TRANSLATION_HISTORY_KEY = "translationHistory";
 const GLOSSARY_ENTRIES_KEY = "glossaryEntries";
+const ACTIVE_TRANSLATION_PREFERENCES_KEY = "activeTranslationPreferences";
 const HISTORY_ENTRY_LIMIT = 300;
 const GLOSSARY_STATUS_VALUES = new Set(["new", "review", "mastered"]);
 const EXAMPLES_API_BASE_URL = "https://api.tatoeba.org";
+const WIKTAPI_API_BASE_URL = "https://api.wiktapi.dev";
 const TATOEBA_LANGUAGE_CODES = {
   es: "spa",
   en: "eng",
@@ -57,6 +59,7 @@ const TATOEBA_LANGUAGE_CODES = {
 };
 const MAX_SYNONYMS = 8;
 const MAX_EXAMPLES = 4;
+const MAX_PHONETICS = 3;
 const SINGLE_WORD_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}'’-]*$/u;
 const POPUP_DRAFT_KEY = "popupDraft";
 const PINNED_POPUP_DIMENSIONS = {
@@ -93,6 +96,25 @@ function normalizeLanguageCode(languageCode) {
     .trim()
     .toLowerCase()
     .split("-")[0];
+}
+
+function normalizeOptionalSourceLanguagePreference(languageCode) {
+  const rawValue = String(languageCode ?? "").trim().toLowerCase();
+  if (!rawValue) {
+    return null;
+  }
+
+  if (rawValue === "auto") {
+    return "auto";
+  }
+
+  const normalizedLanguageCode = normalizeLanguageCode(rawValue);
+  return SUPPORTED_LANGUAGE_CODES.has(normalizedLanguageCode) ? normalizedLanguageCode : null;
+}
+
+function normalizeOptionalTargetLanguagePreference(languageCode) {
+  const normalizedLanguageCode = normalizeLanguageCode(languageCode);
+  return SUPPORTED_LANGUAGE_CODES.has(normalizedLanguageCode) ? normalizedLanguageCode : null;
 }
 
 function getLanguageLabel(languageCode) {
@@ -190,6 +212,22 @@ function sanitizeSynonymCandidate(value) {
     .trim();
 }
 
+function sanitizePhoneticCandidate(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizePhoneticList(phonetics) {
+  if (!Array.isArray(phonetics)) {
+    return [];
+  }
+
+  return uniqueByNormalizedValue(
+    phonetics
+      .map((value) => sanitizePhoneticCandidate(value))
+      .filter(Boolean)
+  ).slice(0, MAX_PHONETICS);
+}
+
 function isSameEndpoint(leftSettings, rightSettings) {
   return (
     normalizeUrlForComparison(leftSettings.apiBaseUrl) ===
@@ -261,6 +299,77 @@ function buildEmptyWordWiseResult({ level, targetLanguage }) {
     segments: [],
     entries: [],
     reason: ""
+  };
+}
+
+function normalizeActiveTranslationPreferences(preferences) {
+  if (!preferences || typeof preferences !== "object") {
+    return null;
+  }
+
+  return {
+    sourceLanguage: normalizeOptionalSourceLanguagePreference(preferences.sourceLanguage) ?? "auto",
+    targetLanguage: normalizeOptionalTargetLanguagePreference(preferences.targetLanguage),
+    translationMode: normalizeTranslationMode(preferences.translationMode),
+    wordWiseLevel: normalizeWordWiseLevel(preferences.wordWiseLevel),
+    includeSynonyms: normalizeBooleanPreference(
+      preferences.includeSynonyms,
+      DEFAULT_SETTINGS.defaultIncludeSynonyms
+    ),
+    includeExamples: normalizeBooleanPreference(
+      preferences.includeExamples,
+      DEFAULT_SETTINGS.defaultIncludeExamples
+    ),
+    updatedAt: String(preferences.updatedAt ?? "").trim() || null
+  };
+}
+
+async function getActiveTranslationPreferences() {
+  const stored = await browserApi.storage.local.get(ACTIVE_TRANSLATION_PREFERENCES_KEY);
+  return normalizeActiveTranslationPreferences(stored[ACTIVE_TRANSLATION_PREFERENCES_KEY]);
+}
+
+async function setActiveTranslationPreferences(preferences) {
+  const normalizedPreferences = normalizeActiveTranslationPreferences(preferences);
+  const nextPreferences = {
+    ...(normalizedPreferences ?? normalizeActiveTranslationPreferences({})),
+    updatedAt: new Date().toISOString()
+  };
+
+  await browserApi.storage.local.set({
+    [ACTIVE_TRANSLATION_PREFERENCES_KEY]: nextPreferences
+  });
+
+  return nextPreferences;
+}
+
+function resolveTranslationPreferences(settings, requestedSourceLanguage, options = {}, activePreferences = null) {
+  const requestedSourcePreference =
+    requestedSourceLanguage === undefined
+      ? activePreferences?.sourceLanguage ?? "auto"
+      : normalizeOptionalSourceLanguagePreference(requestedSourceLanguage) ?? "auto";
+  const requestedTargetLanguage =
+    options.targetLanguage === undefined
+      ? activePreferences?.targetLanguage ?? null
+      : normalizeOptionalTargetLanguagePreference(options.targetLanguage);
+
+  return {
+    requestedSourceLanguage: requestedSourcePreference,
+    requestedTargetLanguage,
+    translationMode: normalizeTranslationMode(
+      options.translationMode ?? activePreferences?.translationMode ?? settings.defaultTranslationMode
+    ),
+    wordWiseLevel: normalizeWordWiseLevel(
+      options.wordWiseLevel ?? activePreferences?.wordWiseLevel ?? settings.defaultWordWiseLevel
+    ),
+    includeSynonyms: normalizeBooleanPreference(
+      options.includeSynonyms,
+      activePreferences?.includeSynonyms ?? settings.defaultIncludeSynonyms
+    ),
+    includeExamples: normalizeBooleanPreference(
+      options.includeExamples,
+      activePreferences?.includeExamples ?? settings.defaultIncludeExamples
+    )
   };
 }
 
@@ -1040,27 +1149,85 @@ async function fetchExampleSentences(text, sourceLanguage, timeoutMs) {
   return uniqueByNormalizedValue((data.data ?? []).map((entry) => entry.text)).slice(0, MAX_EXAMPLES);
 }
 
+async function fetchEnglishPhonetics(text, timeoutMs) {
+  const endpoint = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(text)}`;
+  const data = await fetchJsonWithTimeout(endpoint, { timeoutMs });
+  const phonetics = [];
+
+  for (const entry of Array.isArray(data) ? data : []) {
+    phonetics.push(entry?.phonetic);
+
+    for (const item of entry.phonetics ?? []) {
+      phonetics.push(item?.text);
+    }
+  }
+
+  return normalizePhoneticList(phonetics);
+}
+
+async function fetchWiktionaryPhonetics(text, sourceLanguage, timeoutMs) {
+  const endpoint = new URL(`/v1/en/word/${encodeURIComponent(text)}`, WIKTAPI_API_BASE_URL);
+  endpoint.searchParams.set("lang", sourceLanguage);
+
+  const data = await fetchJsonWithTimeout(endpoint, { timeoutMs });
+  const phonetics = [];
+
+  for (const entry of data.entries ?? []) {
+    for (const sound of entry.sounds ?? []) {
+      phonetics.push(sound?.ipa);
+    }
+  }
+
+  return normalizePhoneticList(phonetics);
+}
+
+async function fetchPhonetics(text, sourceLanguage, timeoutMs) {
+  switch (sourceLanguage) {
+    case "en":
+      return fetchEnglishPhonetics(text, timeoutMs);
+    case "es":
+    case "de":
+      return fetchWiktionaryPhonetics(text, sourceLanguage, timeoutMs);
+    default:
+      return [];
+  }
+}
+
 async function buildLexicalInsights(text, sourceLanguage, settings, options = {}) {
   const lexical = {
+    phonetics: [],
     synonyms: [],
     examples: [],
     notes: [],
     warnings: []
   };
 
-  if (!options.includeSynonyms && !options.includeExamples) {
+  if (!options.includeSynonyms && !options.includeExamples && !isSingleWord(text)) {
     return lexical;
   }
 
   if (!sourceLanguage) {
-    lexical.notes.push("Selecciona el idioma origen manualmente para ver sinónimos o ejemplos.");
+    lexical.notes.push("Selecciona el idioma origen manualmente para ver fonética, sinónimos o ejemplos.");
     return lexical;
   }
 
   const tasks = [];
+  const isSingleSourceWord = isSingleWord(text);
+
+  if (isSingleSourceWord) {
+    tasks.push(
+      fetchPhonetics(text, sourceLanguage, settings.requestTimeoutMs)
+        .then((phonetics) => {
+          lexical.phonetics = phonetics;
+        })
+        .catch((error) => {
+          console.warn("No se pudo cargar la transcripción fonética.", error);
+        })
+    );
+  }
 
   if (options.includeSynonyms) {
-    if (!isSingleWord(text)) {
+    if (!isSingleSourceWord) {
       lexical.notes.push("Los sinónimos solo se buscan para palabras sueltas.");
     } else {
       const providerMessage = getSynonymProviderMessage(sourceLanguage);
@@ -1110,7 +1277,30 @@ async function buildLexicalInsights(text, sourceLanguage, settings, options = {}
   return lexical;
 }
 
-async function buildTranslationResult(text, requestedSourceLanguage = "auto", options = {}) {
+function buildEmptyLexicalInsights() {
+  return {
+    phonetics: [],
+    synonyms: [],
+    examples: [],
+    notes: [],
+    warnings: []
+  };
+}
+
+function shouldDeferLexicalInsights(text, translationMode, options = {}) {
+  if (translationMode !== TRANSLATION_MODES.FULL) {
+    return false;
+  }
+
+  return isSingleWord(text) || options.includeSynonyms || options.includeExamples;
+}
+
+function normalizeTranslationRequestId(requestId) {
+  const normalized = String(requestId ?? "").trim();
+  return normalized || null;
+}
+
+async function buildTranslationResult(text, requestedSourceLanguage, options = {}) {
   const cleanText = String(text ?? "").trim();
   const maxTextLength = Number.isFinite(options.maxTextLength)
     ? options.maxTextLength
@@ -1127,25 +1317,30 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
   }
 
   const settings = await getStoredSettings();
-  const translationMode = normalizeTranslationMode(
-    options.translationMode ?? settings.defaultTranslationMode
+  const activePreferences = options.useActivePreferences
+    ? await getActiveTranslationPreferences()
+    : null;
+  const resolvedPreferences = resolveTranslationPreferences(
+    settings,
+    requestedSourceLanguage,
+    options,
+    activePreferences
   );
-  const wordWiseLevel = normalizeWordWiseLevel(
-    options.wordWiseLevel ?? settings.defaultWordWiseLevel
-  );
-  const includeSynonyms = normalizeBooleanPreference(
-    options.includeSynonyms,
-    settings.defaultIncludeSynonyms
-  );
-  const includeExamples = normalizeBooleanPreference(
-    options.includeExamples,
-    settings.defaultIncludeExamples
-  );
-  const requestedTargetLanguage = normalizeLanguageCode(options.targetLanguage);
+  const {
+    requestedSourceLanguage: effectiveRequestedSourceLanguage,
+    requestedTargetLanguage,
+    translationMode,
+    wordWiseLevel,
+    includeSynonyms,
+    includeExamples
+  } = resolvedPreferences;
+  const requestId = normalizeTranslationRequestId(options.requestId);
+  const resultId = createEntryId();
+  const createdAt = new Date().toISOString();
   let sourceLanguage =
-    requestedSourceLanguage === "auto"
+    effectiveRequestedSourceLanguage === "auto"
       ? await detectSourceLanguage(cleanText)
-      : normalizeLanguageCode(requestedSourceLanguage);
+      : normalizeLanguageCode(effectiveRequestedSourceLanguage);
 
   if (!SUPPORTED_LANGUAGE_CODES.has(sourceLanguage)) {
     sourceLanguage = null;
@@ -1163,7 +1358,7 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
   }
 
   if (
-    requestedSourceLanguage !== "auto" &&
+    effectiveRequestedSourceLanguage !== "auto" &&
     effectiveTargetLanguage &&
     effectiveTargetLanguage === sourceLanguage
   ) {
@@ -1201,12 +1396,7 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
           includeSynonyms,
           includeExamples
         })
-      : Promise.resolve({
-          synonyms: [],
-          examples: [],
-          notes: [],
-          warnings: []
-        });
+      : Promise.resolve(buildEmptyLexicalInsights());
   const wordWisePromise =
     translationMode === TRANSLATION_MODES.WORD_WISE && targetLanguages[0]
       ? buildWordWiseResult({
@@ -1222,20 +1412,22 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
             targetLanguage: targetLanguages[0] ?? null
           })
         );
-
-  const [translations, lexical, wordWise] = await Promise.all([
-    translationsPromise,
-    lexicalPromise,
-    wordWisePromise
-  ]);
-
-  return {
+  const shouldDeferLexical =
+    options.deferLexical === true &&
+    shouldDeferLexicalInsights(cleanText, translationMode, {
+      includeSynonyms,
+      includeExamples
+    });
+  const [translations, wordWise] = await Promise.all([translationsPromise, wordWisePromise]);
+  const baseResult = {
+    id: resultId,
+    requestId,
     input: cleanText,
     translationMode,
     sourceLanguage: {
       code: sourceLanguage ?? "auto",
       label: sourceLanguage ? getLanguageLabel(sourceLanguage) : "Auto",
-      isAutoDetected: requestedSourceLanguage === "auto"
+      isAutoDetected: effectiveRequestedSourceLanguage === "auto"
     },
     targetLanguage: targetLanguages[0]
       ? {
@@ -1255,9 +1447,32 @@ async function buildTranslationResult(text, requestedSourceLanguage = "auto", op
       defaultTargetLanguage: pickDefaultTargetLanguage(sourceLanguage, settings)
     },
     sourceType: options.sourceType ?? null,
-    lexical,
+    lexical: buildEmptyLexicalInsights(),
     wordWise,
-    createdAt: new Date().toISOString()
+    pendingLexical: shouldDeferLexical,
+    createdAt
+  };
+
+  if (shouldDeferLexical) {
+    void lexicalPromise
+      .then((lexical) =>
+        options.onDeferredLexicalResult?.({
+          ...baseResult,
+          lexical,
+          pendingLexical: false
+        })
+      )
+      .catch((error) => {
+        console.warn("No se pudo completar la carga diferida de extras léxicos.", error);
+      });
+
+    return baseResult;
+  }
+
+  return {
+    ...baseResult,
+    lexical: await lexicalPromise,
+    pendingLexical: false
   };
 }
 
@@ -1373,6 +1588,10 @@ function normalizeTranslations(translations) {
     .filter(Boolean);
 }
 
+function normalizePhonetics(phonetics) {
+  return normalizePhoneticList(phonetics);
+}
+
 function normalizeGlossaryStatus(status) {
   const normalizedStatus = String(status ?? "").trim().toLowerCase();
   return GLOSSARY_STATUS_VALUES.has(normalizedStatus) ? normalizedStatus : "new";
@@ -1441,6 +1660,9 @@ function buildHistoryEntry(translationResult, pageContext = null) {
     sourceLanguage: normalizeLanguageMetadata(translationResult?.sourceLanguage),
     targetLanguage: normalizeLanguageMetadata(translationResult?.targetLanguage),
     translations: normalizeTranslations(translationResult?.translations),
+    phonetics: normalizePhonetics(
+      translationResult?.phonetics ?? translationResult?.lexical?.phonetics
+    ),
     createdAt: String(translationResult?.createdAt ?? new Date().toISOString()),
     sourceType: translationResult?.sourceType ?? null,
     pageTitle: normalizedPageContext.pageTitle,
@@ -1479,6 +1701,12 @@ function buildGlossaryEntry(text, translationResult = null, pageContext = null, 
     translations: normalizeTranslations(
       overrides.translations ?? (matchesInput ? translationResult?.translations : [])
     ),
+    phonetics: normalizePhonetics(
+      overrides.phonetics ??
+        (matchesInput
+          ? translationResult?.phonetics ?? translationResult?.lexical?.phonetics
+          : [])
+    ),
     contextText: normalizeFreeformText(overrides.contextText),
     note: normalizeFreeformText(overrides.note),
     tags: normalizeTagList(overrides.tags),
@@ -1508,6 +1736,7 @@ function normalizeStoredGlossaryEntry(entry) {
     sourceLanguage: entry.sourceLanguage,
     targetLanguage: entry.targetLanguage,
     translations: entry.translations,
+    phonetics: entry.phonetics,
     contextText: entry.contextText,
     note: entry.note,
     tags: entry.tags,
@@ -1531,6 +1760,7 @@ function buildLegacyGlossaryEntry(entry) {
     id: entry.id,
     sourceLanguage: entry.sourceLanguage,
     translations: entry.translations,
+    phonetics: entry.phonetics,
     createdAt: entry.createdAt,
     updatedAt: entry.createdAt
   });
@@ -1602,6 +1832,46 @@ async function appendHistoryEntry(translationResult, pageContext = null) {
   const nextEntries = limitHistoryEntries([entry, ...entries]);
   await browserApi.storage.local.set({ [TRANSLATION_HISTORY_KEY]: nextEntries });
   return entry;
+}
+
+async function updateHistoryEntry(translationResult, pageContext = null) {
+  const entry = buildHistoryEntry(translationResult, pageContext);
+  if (!entry) {
+    return null;
+  }
+
+  const entries = await getHistoryEntries();
+  const hasExistingEntry = entries.some((storedEntry) => storedEntry.id === entry.id);
+  const nextEntries = hasExistingEntry
+    ? limitHistoryEntries(entries.map((storedEntry) => (storedEntry.id === entry.id ? entry : storedEntry)))
+    : limitHistoryEntries([entry, ...entries]);
+  await browserApi.storage.local.set({ [TRANSLATION_HISTORY_KEY]: nextEntries });
+  return entry;
+}
+
+async function sendTranslationUpdate(sender, result) {
+  if (sender?.tab?.id) {
+    try {
+      await browserApi.tabs.sendMessage(sender.tab.id, {
+        type: "translation-update",
+        requestId: result.requestId,
+        result
+      });
+    } catch (error) {
+      console.warn("No se pudo entregar la actualización de traducción a la pestaña activa.", error);
+    }
+    return;
+  }
+
+  try {
+    await browserApi.runtime.sendMessage({
+      type: "translation-update",
+      requestId: result.requestId,
+      result
+    });
+  } catch (error) {
+    console.warn("No se pudo entregar la actualización de traducción al popup.", error);
+  }
 }
 
 async function saveEntry(text, { pageContext = null, translationResult = null, originHistoryId = null } = {}) {
@@ -1688,6 +1958,7 @@ async function promoteHistoryEntry(entryId) {
       sourceLanguage: historyEntry.sourceLanguage,
       targetLanguage: historyEntry.targetLanguage,
       translations: historyEntry.translations,
+      phonetics: historyEntry.phonetics,
       createdAt: historyEntry.createdAt
     },
     originHistoryId: historyEntry.id
@@ -2009,21 +2280,30 @@ browserApi.commands.onCommand.addListener(async (command) => {
 browserApi.runtime.onMessage.addListener((message, sender) => {
   switch (message?.type) {
     case "translate-text":
-      return buildTranslationResult(message.text, message.sourceLanguage ?? "auto", {
-        targetLanguage: message.targetLanguage,
-        translationMode: message.translationMode,
-        wordWiseLevel: message.wordWiseLevel,
-        includeSynonyms: message.includeSynonyms !== false,
-        includeExamples: message.includeExamples !== false,
-        sourceType: message.sourceType ?? null,
-        maxTextLength:
-          message.sourceType === "dom-block" ? MAX_DOM_BLOCK_TEXT_LENGTH : undefined
-      }).then(async (result) => {
+      return (async () => {
         const pageContext = sender?.tab ? normalizePageContext(sender.tab) : null;
+        const result = await buildTranslationResult(message.text, message.sourceLanguage, {
+          targetLanguage: message.targetLanguage,
+          translationMode: message.translationMode,
+          wordWiseLevel: message.wordWiseLevel,
+          includeSynonyms: message.includeSynonyms,
+          includeExamples: message.includeExamples,
+          useActivePreferences: message.useActivePreferences === true,
+          sourceType: message.sourceType ?? null,
+          maxTextLength:
+            message.sourceType === "dom-block" ? MAX_DOM_BLOCK_TEXT_LENGTH : undefined,
+          requestId: message.requestId,
+          deferLexical: message.deferLexical === true,
+          onDeferredLexicalResult: async (finalResult) => {
+            await setLastResult(finalResult, pageContext);
+            await updateHistoryEntry(finalResult, pageContext);
+            await sendTranslationUpdate(sender, finalResult);
+          }
+        });
         await setLastResult(result, pageContext);
         await appendHistoryEntry(result, pageContext);
         return result;
-      });
+      })();
 
     case "start-dom-block-picker":
       return startDomBlockPicker(message.translationOptions ?? {});
@@ -2077,6 +2357,12 @@ browserApi.runtime.onMessage.addListener((message, sender) => {
 
     case "save-settings":
       return setStoredSettings(message.settings ?? {});
+
+    case "get-active-translation-preferences":
+      return getActiveTranslationPreferences();
+
+    case "save-active-translation-preferences":
+      return setActiveTranslationPreferences(message.preferences ?? {});
 
     case "open-results-tab":
       return openResultsTab();

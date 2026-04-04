@@ -437,6 +437,20 @@ h2 {
   color: #224ec5;
 }
 
+.pronunciation-actions,
+.saved-pronunciation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pronunciation-button {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
 .empty-card {
   padding: 18px 14px;
   border: 1px dashed var(--border-strong);
@@ -609,6 +623,10 @@ h2 {
 .saved-source {
   display: grid;
   gap: 6px;
+}
+
+.saved-pronunciation-row {
+  margin-top: 2px;
 }
 
 .saved-translation {

@@ -6,12 +6,27 @@
   const HIGHLIGHT_ID = "translator-es-en-de-highlight";
   const PICKER_ATTRIBUTE = "data-translator-picker";
   const DOM_BLOCK_PREVIEW_LENGTH = 280;
+  const SPEECH_LANGUAGE_CODES = {
+    es: "es-ES",
+    en: "en-GB",
+    de: "de-DE"
+  };
 
   let currentSelectionText = "";
   let anchorRect = null;
   let pickerState = null;
   let hoveredBlockElement = null;
   let activeBubbleState = null;
+  let activeInlineRequestId = "";
+  let activeInlineRect = null;
+
+  function createTranslationRequestId() {
+    if (globalThis.crypto?.randomUUID) {
+      return globalThis.crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
 
   function ensureStyles() {
     if (document.getElementById(STYLE_ID)) {
@@ -175,6 +190,12 @@
         white-space: pre-wrap;
       }
 
+      #${PANEL_ID} .translator-pronunciation-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
       #${PANEL_ID} .word-wise-text {
         line-height: 1.6;
       }
@@ -226,6 +247,8 @@
 
   function clearPanel() {
     activeBubbleState = null;
+    activeInlineRequestId = "";
+    activeInlineRect = null;
     removeNodeById(PANEL_ID);
   }
 
@@ -422,6 +445,104 @@
     );
   }
 
+  function createPhoneticsCard(phonetics = []) {
+    if (!Array.isArray(phonetics) || !phonetics.length) {
+      return null;
+    }
+
+    return createTranslationCard("Fonética", phonetics.join(" · "));
+  }
+
+  function normalizeSpeechLanguageCode(languageCode) {
+    return SPEECH_LANGUAGE_CODES[String(languageCode ?? "").trim().toLowerCase().split("-")[0]] ?? "";
+  }
+
+  function canSpeakText(text, languageCode) {
+    return Boolean(
+      String(text ?? "").trim() &&
+        normalizeSpeechLanguageCode(languageCode) &&
+        globalThis.speechSynthesis &&
+        globalThis.SpeechSynthesisUtterance
+    );
+  }
+
+  function pickSpeechVoice(languageCode) {
+    const speechLanguageCode = normalizeSpeechLanguageCode(languageCode);
+    if (!speechLanguageCode || !globalThis.speechSynthesis?.getVoices) {
+      return null;
+    }
+
+    const normalizedLanguage = speechLanguageCode.toLowerCase();
+    const languagePrefix = normalizedLanguage.split("-")[0];
+    const voices = globalThis.speechSynthesis.getVoices();
+
+    return (
+      voices.find((voice) => String(voice?.lang ?? "").toLowerCase() === normalizedLanguage) ??
+      voices.find((voice) =>
+        String(voice?.lang ?? "").toLowerCase().startsWith(`${languagePrefix}-`)
+      ) ??
+      voices.find((voice) => String(voice?.lang ?? "").toLowerCase() === languagePrefix) ??
+      null
+    );
+  }
+
+  function speakText(text, languageCode) {
+    if (!canSpeakText(text, languageCode)) {
+      return false;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(String(text ?? "").trim());
+    utterance.lang = normalizeSpeechLanguageCode(languageCode);
+
+    const voice = pickSpeechVoice(languageCode);
+    if (voice) {
+      utterance.voice = voice;
+    }
+
+    globalThis.speechSynthesis.cancel();
+    globalThis.speechSynthesis.speak(utterance);
+    return true;
+  }
+
+  function createPronunciationButton(label, text, languageCode) {
+    if (!canSpeakText(text, languageCode)) {
+      return null;
+    }
+
+    const button = createElement("button", {
+      className: "translator-toggle",
+      textContent: label
+    });
+    button.type = "button";
+    button.addEventListener("click", () => {
+      speakText(text, languageCode);
+    });
+    return button;
+  }
+
+  function createPronunciationCard({ sourceText, sourceLanguageCode, targetText, targetLanguageCode }) {
+    const actions = createElement("div", { className: "translator-pronunciation-actions" });
+    appendRenderable(
+      actions,
+      createPronunciationButton("Escuchar original", sourceText, sourceLanguageCode)
+    );
+    appendRenderable(
+      actions,
+      createPronunciationButton("Escuchar traducción", targetText, targetLanguageCode)
+    );
+
+    if (!actions.childNodes.length) {
+      return null;
+    }
+
+    const article = createElement("article", { className: "translator-card" });
+    article.append(
+      createElement("h4", { textContent: "Pronunciacion" }),
+      actions
+    );
+    return article;
+  }
+
   function createTranslatorSection(label, text, compact = false) {
     const section = createElement("div", { className: "translator-section" });
     section.append(
@@ -478,7 +599,82 @@
     return panel;
   }
 
+  function renderInlineTranslationResult(rect, result) {
+    const wordWise = result.wordWise ?? null;
+
+    if (result.translationMode === "word-wise" && wordWise) {
+      const wordWiseBody = wordWise.supported
+        ? (() => {
+            const annotatedCard = createElement("div", { className: "translator-card" });
+            annotatedCard.append(
+              createElement("h4", { textContent: "Texto anotado" }),
+              createWordWiseTextElement(wordWise.segments)
+            );
+
+            return [
+              createTranslatorStatus(
+                result.pendingLexical
+                  ? `Origen: ${result.sourceLanguage.label} · Destino: ${
+                      wordWise.targetLanguage?.label || result.targetLanguage?.label || ""
+                    } · Nivel: ${wordWise.level} · Cargando fonetica...`
+                  : `Origen: ${result.sourceLanguage.label} · Destino: ${
+                      wordWise.targetLanguage?.label || result.targetLanguage?.label || ""
+                    } · Nivel: ${wordWise.level}`
+              ),
+              annotatedCard,
+              wordWise.reason ? createTranslatorStatus(wordWise.reason) : null
+            ];
+          })()
+        : [
+            createTranslatorStatus("Word Wise no está disponible para esta selección."),
+            createTranslationCard("Texto original", result.input ?? ""),
+            createTranslatorError(
+              wordWise.reason || "Word Wise solo está disponible para texto en alemán."
+            )
+          ];
+
+      renderPanel(
+        rect,
+        [
+          createSimpleHeader("Word Wise"),
+          createPhoneticsCard(result.lexical?.phonetics),
+          createPronunciationCard({
+            sourceText: result.input,
+            sourceLanguageCode: result.sourceLanguage?.code
+          }),
+          wordWiseBody
+        ]
+      );
+      return;
+    }
+
+    renderPanel(
+      rect,
+      [
+        createSimpleHeader("Traduccion rapida"),
+        createTranslatorInput(result.input ?? ""),
+        createTranslatorStatus(
+          result.pendingLexical
+            ? `Origen: ${result.sourceLanguage.label} · Cargando fonetica...`
+            : `Origen: ${result.sourceLanguage.label}`
+        ),
+        createPhoneticsCard(result.lexical?.phonetics),
+        createPronunciationCard({
+          sourceText: result.input,
+          sourceLanguageCode: result.sourceLanguage?.code,
+          targetText: result.translations?.[0]?.text,
+          targetLanguageCode: result.translations?.[0]?.code
+        }),
+        createTranslationCards(result.translations)
+      ]
+    );
+  }
+
   async function translateSelectionInline(selectedText, rect) {
+    const requestId = createTranslationRequestId();
+    activeInlineRequestId = requestId;
+    activeInlineRect = rect;
+
     renderPanel(
       rect,
       [
@@ -491,55 +687,22 @@
     try {
       const result = await browserApi.runtime.sendMessage({
         type: "translate-text",
+        requestId,
+        deferLexical: true,
         text: selectedText,
-        sourceLanguage: "auto"
+        useActivePreferences: true
       });
 
-      const wordWise = result.wordWise ?? null;
-      if (result.translationMode === "word-wise" && wordWise) {
-        const wordWiseBody = wordWise.supported
-          ? (() => {
-              const annotatedCard = createElement("div", { className: "translator-card" });
-              annotatedCard.append(
-                createElement("h4", { textContent: "Texto anotado" }),
-                createWordWiseTextElement(wordWise.segments)
-              );
-
-              return [
-                createTranslatorStatus(
-                  `Origen: ${result.sourceLanguage.label} · Destino: ${
-                    wordWise.targetLanguage?.label || result.targetLanguage?.label || ""
-                  } · Nivel: ${wordWise.level}`
-                ),
-                annotatedCard,
-                wordWise.reason ? createTranslatorStatus(wordWise.reason) : null
-              ];
-            })()
-          : [
-              createTranslatorStatus("Word Wise no está disponible para esta selección."),
-              createTranslationCard("Texto original", result.input ?? ""),
-              createTranslatorError(
-                wordWise.reason || "Word Wise solo está disponible para texto en alemán."
-              )
-            ];
-
-        renderPanel(
-          rect,
-          [createSimpleHeader("Word Wise"), wordWiseBody]
-        );
+      if (requestId !== activeInlineRequestId) {
         return;
       }
 
-      renderPanel(
-        rect,
-        [
-          createSimpleHeader("Traduccion rapida"),
-          createTranslatorInput(result.input ?? ""),
-          createTranslatorStatus(`Origen: ${result.sourceLanguage.label}`),
-          createTranslationCards(result.translations)
-        ]
-      );
+      renderInlineTranslationResult(rect, result);
     } catch (error) {
+      if (requestId !== activeInlineRequestId) {
+        return;
+      }
+
       renderPanel(
         rect,
         [
@@ -591,20 +754,79 @@
     return !["inline", "contents", "inline-block", "inline-flex", "inline-grid"].includes(display);
   }
 
-  function findSelectableBlock(target) {
+  function getParentElementThroughShadow(element) {
+    if (!(element instanceof Element)) {
+      return null;
+    }
+
+    if (element.parentElement) {
+      return element.parentElement;
+    }
+
+    const root = element.getRootNode?.();
+    if (root instanceof ShadowRoot && root.host instanceof Element) {
+      return root.host;
+    }
+
+    return null;
+  }
+
+  function getPickerEventTarget(event) {
+    if (!event) {
+      return null;
+    }
+
+    const composedPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (const item of composedPath) {
+      if (item instanceof Element && !isInsideExtensionUi(item)) {
+        return item;
+      }
+    }
+
+    if (event.target instanceof Element && !isInsideExtensionUi(event.target)) {
+      return event.target;
+    }
+
+    if (typeof event.clientX === "number" && typeof event.clientY === "number") {
+      const pointTarget = document.elementFromPoint(event.clientX, event.clientY);
+      if (pointTarget instanceof Element && !isInsideExtensionUi(pointTarget)) {
+        return pointTarget;
+      }
+    }
+
+    return null;
+  }
+
+  function findSelectableBlock(target, { preferPreciseMatch = false } = {}) {
     if (!(target instanceof Element) || isInsideExtensionUi(target)) {
       return null;
     }
 
+    let fallback = null;
     let element = target;
     while (element && element !== document.body && element !== document.documentElement) {
       if (!isExcludedTagName(element.tagName) && isElementVisible(element) && isBlockLikeElement(element)) {
-        return element;
+        if (!preferPreciseMatch) {
+          return element;
+        }
+
+        fallback ??= element;
+
+        const rect = element.getBoundingClientRect();
+        const viewportArea = window.innerWidth * window.innerHeight;
+        const elementArea = rect.width * rect.height;
+        const text = extractVisibleBlockText(element);
+        const isUsefulTextLength = text.length > 0 && text.length <= MAX_DOM_BLOCK_TEXT_LENGTH;
+        const coversMostViewport = viewportArea > 0 && elementArea >= viewportArea * 0.7;
+
+        if (isUsefulTextLength && !coversMostViewport) {
+          return element;
+        }
       }
-      element = element.parentElement;
+      element = getParentElementThroughShadow(element);
     }
 
-    return null;
+    return fallback;
   }
 
   function getHighlightNode() {
@@ -977,13 +1199,36 @@
       return;
     }
 
-    const candidate = findSelectableBlock(event.target);
+    const candidate = findSelectableBlock(getPickerEventTarget(event));
     if (candidate === hoveredBlockElement) {
       return;
     }
 
     hoveredBlockElement = candidate;
     updatePickerHighlight(candidate);
+  }
+
+  function handlePickerPointerDown(event) {
+    if (pickerState?.mode !== "block") {
+      return;
+    }
+
+    if (isInsideExtensionUi(event.target)) {
+      return;
+    }
+
+    const candidate = findSelectableBlock(getPickerEventTarget(event), {
+      preferPreciseMatch: true
+    });
+    hoveredBlockElement = candidate;
+    updatePickerHighlight(candidate);
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
   }
 
   function handlePickerClick(event) {
@@ -995,7 +1240,9 @@
       return;
     }
 
-    const candidate = findSelectableBlock(event.target);
+    const candidate = findSelectableBlock(getPickerEventTarget(event), {
+      preferPreciseMatch: true
+    });
     event.preventDefault();
     event.stopPropagation();
 
@@ -1040,6 +1287,14 @@
     "mousemove",
     (event) => {
       handlePickerMouseMove(event);
+    },
+    true
+  );
+
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      handlePickerPointerDown(event);
     },
     true
   );
@@ -1104,6 +1359,19 @@
     if (message?.type === "start-dom-block-picker") {
       startBlockPicker(message.translationOptions ?? {});
       return Promise.resolve({ started: true });
+    }
+
+    if (message?.type === "translation-update") {
+      if (
+        message.requestId &&
+        message.requestId === activeInlineRequestId &&
+        activeInlineRect
+      ) {
+        renderInlineTranslationResult(activeInlineRect, message.result ?? null);
+        return Promise.resolve({ handled: true });
+      }
+
+      return Promise.resolve({ handled: false });
     }
 
     return undefined;

@@ -26,8 +26,13 @@ const statusMessageElement = document.getElementById("statusMessage");
 const resultRootElement = document.getElementById("resultRoot");
 const shellElement = document.querySelector(".translator-shell");
 const extrasCopyElement = document.getElementById("extrasCopy");
-const AUTO_TRANSLATE_DELAY_MS = 3000;
+const AUTO_TRANSLATE_DELAY_MS = 1000;
 const MANUAL_LANGUAGE_CODES = ["es", "en", "de"];
+const SPEECH_LANGUAGE_CODES = {
+  es: "es-ES",
+  en: "en-GB",
+  de: "de-DE"
+};
 
 let popupSettings = null;
 let autoTranslateTimerId = null;
@@ -35,6 +40,15 @@ let isTranslating = false;
 let queuedAutoTranslate = false;
 let lastTranslationRequestKey = "";
 let lastDisplayedResult = null;
+let activeTranslationRequestId = "";
+
+function createTranslationRequestId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function createElement(tagName, { className = "", textContent = null } = {}) {
   const element = document.createElement(tagName);
@@ -134,6 +148,102 @@ function createTextCard(
   return article;
 }
 
+function getSpeechLanguageCode(languageCode) {
+  return SPEECH_LANGUAGE_CODES[normalizeSupportedLanguageCode(languageCode)] ?? "";
+}
+
+function canSpeakText(text, languageCode) {
+  return Boolean(
+    String(text ?? "").trim() &&
+      getSpeechLanguageCode(languageCode) &&
+      globalThis.speechSynthesis &&
+      globalThis.SpeechSynthesisUtterance
+  );
+}
+
+function pickSpeechVoice(languageCode) {
+  const speechLanguageCode = getSpeechLanguageCode(languageCode);
+  if (!speechLanguageCode || !globalThis.speechSynthesis?.getVoices) {
+    return null;
+  }
+
+  const normalizedLanguage = speechLanguageCode.toLowerCase();
+  const languagePrefix = normalizedLanguage.split("-")[0];
+  const voices = globalThis.speechSynthesis.getVoices();
+
+  return (
+    voices.find((voice) => String(voice?.lang ?? "").toLowerCase() === normalizedLanguage) ??
+    voices.find((voice) =>
+      String(voice?.lang ?? "").toLowerCase().startsWith(`${languagePrefix}-`)
+    ) ??
+    voices.find((voice) => String(voice?.lang ?? "").toLowerCase() === languagePrefix) ??
+    null
+  );
+}
+
+function speakText(text, languageCode) {
+  if (!canSpeakText(text, languageCode)) {
+    return false;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(String(text ?? "").trim());
+  utterance.lang = getSpeechLanguageCode(languageCode);
+
+  const voice = pickSpeechVoice(languageCode);
+  if (voice) {
+    utterance.voice = voice;
+  }
+
+  globalThis.speechSynthesis.cancel();
+  globalThis.speechSynthesis.speak(utterance);
+  return true;
+}
+
+function createPronunciationButton(label, text, languageCode) {
+  if (!canSpeakText(text, languageCode)) {
+    return null;
+  }
+
+  const button = createElement("button", {
+    className: "secondary-button pronunciation-button",
+    textContent: label
+  });
+  button.type = "button";
+  button.addEventListener("click", () => {
+    if (!speakText(text, languageCode)) {
+      setStatus("No se pudo reproducir la pronunciación con la voz disponible.");
+      return;
+    }
+
+    setStatus(`Reproduciendo ${label.toLocaleLowerCase("es-ES")}.`);
+  });
+  return button;
+}
+
+function createPronunciationCard({ sourceText, sourceLanguageCode, targetText, targetLanguageCode }) {
+  const actions = createElement("div", { className: "pronunciation-actions" });
+
+  appendRenderable(
+    actions,
+    createPronunciationButton("Escuchar original", sourceText, sourceLanguageCode)
+  );
+  appendRenderable(
+    actions,
+    createPronunciationButton("Escuchar traducción", targetText, targetLanguageCode)
+  );
+
+  if (!actions.childNodes.length) {
+    return null;
+  }
+
+  const article = createElement("article", { className: "insight-card pronunciation-card" });
+  article.append(
+    createElement("h3", { textContent: "Pronunciación" }),
+    actions
+  );
+  return article;
+}
+
 function createErrorBox(message) {
   return createElement("div", {
     className: "error-box",
@@ -228,7 +338,7 @@ function syncWordWiseControls(isBusy = false) {
 
   extrasCopyElement.textContent = wordWiseEnabled
     ? "Word Wise solo funciona con texto en alemán y anota palabras difíciles según el nivel CEFR."
-    : "Los sinónimos y ejemplos del resultado se configuran en Opciones.";
+    : "Los sinónimos y ejemplos se configuran en Opciones. La pronunciación se reproduce desde el resultado.";
 }
 
 function setBusyState(isBusy) {
@@ -300,7 +410,7 @@ function scheduleAutoTranslate() {
     return;
   }
 
-  setStatus("Cambio detectado. Traduciendo en 3 segundos...");
+  setStatus("Cambio detectado. Traduciendo en 1 segundo...");
   autoTranslateTimerId = window.setTimeout(() => {
     autoTranslateTimerId = null;
     translateCurrentInput({ source: "auto" }).catch(handleTranslateError);
@@ -315,6 +425,33 @@ function getPopupDraft() {
     translationMode: normalizeTranslationMode(translationModeElement.value),
     wordWiseLevel: normalizeWordWiseLevel(wordWiseLevelElement.value)
   };
+}
+
+function getActiveTranslationPreferences() {
+  const sourceLanguage =
+    sourceLanguageElement.value === "auto"
+      ? "auto"
+      : normalizeSupportedLanguageCode(sourceLanguageElement.value) ?? "auto";
+  const targetLanguage =
+    normalizeSupportedLanguageCode(targetLanguageElement.value) ||
+    popupSettings?.defaultTargetLanguage ||
+    "en";
+
+  return {
+    sourceLanguage,
+    targetLanguage,
+    translationMode: normalizeTranslationMode(translationModeElement.value),
+    wordWiseLevel: normalizeWordWiseLevel(wordWiseLevelElement.value),
+    includeSynonyms: shouldIncludeSynonyms(),
+    includeExamples: shouldIncludeExamples()
+  };
+}
+
+async function persistActiveTranslationPreferences() {
+  await browserApi.runtime.sendMessage({
+    type: "save-active-translation-preferences",
+    preferences: getActiveTranslationPreferences()
+  });
 }
 
 function getSwapSourceLanguage() {
@@ -450,6 +587,15 @@ function renderFullTranslationResult(result) {
     resultRootElement,
     createMetaLine("Origen", result.sourceLanguage.label),
     createMetaLine("Destino", result.targetLanguage?.label || primaryTranslation?.label || ""),
+    createTextCard("Fonética", result.lexical?.phonetics, {
+      cardClassName: "insight-card pronunciation-card"
+    }),
+    createPronunciationCard({
+      sourceText: result.input,
+      sourceLanguageCode: result.sourceLanguage?.code,
+      targetText: primaryTranslation?.text,
+      targetLanguageCode: primaryTranslation?.code ?? result.targetLanguage?.code
+    }),
     createTagCard("Sinónimos", result.lexical?.synonyms),
     createTextCard("Ejemplos", result.lexical?.examples, {
       cardClassName: "insight-card",
@@ -463,7 +609,11 @@ function renderFullTranslationResult(result) {
       cardClassName: "insight-card insight-card-warning"
     })
   );
-  setStatus("Traducción completada.");
+  setStatus(
+    result.pendingLexical
+      ? "Traducción completada. Cargando fonética y extras..."
+      : "Traducción completada."
+  );
 }
 
 function renderWordWiseResult(result) {
@@ -519,13 +669,24 @@ function renderWordWiseResult(result) {
       wordWise.targetLanguage?.label || result.targetLanguage?.label || ""
     ),
     createMetaLine("Nivel Word Wise", wordWise.level),
+    createTextCard("Fonética", result.lexical?.phonetics, {
+      cardClassName: "insight-card pronunciation-card"
+    }),
+    createPronunciationCard({
+      sourceText: result.input,
+      sourceLanguageCode: result.sourceLanguage?.code
+    }),
     resultCard,
     createTagCard("Palabras anotadas", wordWise.entries, (entry) => {
       return `${entry.sourceText} → ${entry.translatedText}`;
     }),
     noteSections
   );
-  setStatus("Word Wise completado.");
+  setStatus(
+    result.pendingLexical
+      ? "Word Wise completado. Cargando fonética..."
+      : "Word Wise completado."
+  );
 }
 
 function renderResult(result) {
@@ -616,6 +777,8 @@ async function translateCurrentInput(options = {}) {
   }
 
   lastTranslationRequestKey = requestKey;
+  const requestId = createTranslationRequestId();
+  activeTranslationRequestId = requestId;
   setBusyState(true);
   setStatus(
     translationMode === TRANSLATION_MODES.WORD_WISE
@@ -630,6 +793,8 @@ async function translateCurrentInput(options = {}) {
   try {
     const result = await browserApi.runtime.sendMessage({
       type: "translate-text",
+      requestId,
+      deferLexical: true,
       text: inputText,
       sourceLanguage: sourceLanguageElement.value,
       targetLanguage: targetLanguageElement.value,
@@ -638,12 +803,17 @@ async function translateCurrentInput(options = {}) {
       includeSynonyms: translationMode === TRANSLATION_MODES.FULL && shouldIncludeSynonyms(),
       includeExamples: translationMode === TRANSLATION_MODES.FULL && shouldIncludeExamples()
     });
+    if (requestId !== activeTranslationRequestId) {
+      return;
+    }
     renderResult(result);
   } catch (error) {
-    renderResult({
-      input: inputText,
-      error: error.message || "Error inesperado en la traducción."
-    });
+    if (requestId === activeTranslationRequestId) {
+      renderResult({
+        input: inputText,
+        error: error.message || "Error inesperado en la traducción."
+      });
+    }
   } finally {
     setBusyState(false);
     runQueuedAutoTranslateIfNeeded();
@@ -747,7 +917,22 @@ async function initializePopup() {
         : `Se ha añadido "${saveFeedback.text}" al glosario.`
     );
   }
+
+  await persistActiveTranslationPreferences();
 }
+
+browserApi.runtime.onMessage.addListener((message) => {
+  if (message?.type !== "translation-update") {
+    return undefined;
+  }
+
+  if (!message.requestId || message.requestId !== activeTranslationRequestId) {
+    return Promise.resolve({ handled: false });
+  }
+
+  renderResult(message.result ?? null);
+  return Promise.resolve({ handled: true });
+});
 
 translateButton.addEventListener("click", () => {
   translateCurrentInput({ force: true }).catch(handleTranslateError);
@@ -794,6 +979,9 @@ inputTextElement.addEventListener("keydown", (event) => {
 
 sourceLanguageElement.addEventListener("change", () => {
   syncWordWiseControls();
+  persistActiveTranslationPreferences().catch((error) => {
+    console.warn("No se pudieron guardar las preferencias activas.", error);
+  });
   if (inputTextElement.value.trim()) {
     scheduleAutoTranslate();
   }
@@ -801,6 +989,9 @@ sourceLanguageElement.addEventListener("change", () => {
 
 targetLanguageElement.addEventListener("change", () => {
   syncWordWiseControls();
+  persistActiveTranslationPreferences().catch((error) => {
+    console.warn("No se pudieron guardar las preferencias activas.", error);
+  });
   if (inputTextElement.value.trim()) {
     scheduleAutoTranslate();
   }
@@ -808,6 +999,9 @@ targetLanguageElement.addEventListener("change", () => {
 
 translationModeElement.addEventListener("change", () => {
   syncWordWiseControls();
+  persistActiveTranslationPreferences().catch((error) => {
+    console.warn("No se pudieron guardar las preferencias activas.", error);
+  });
   if (inputTextElement.value.trim()) {
     scheduleAutoTranslate();
   }
@@ -815,6 +1009,9 @@ translationModeElement.addEventListener("change", () => {
 
 wordWiseLevelElement.addEventListener("change", () => {
   wordWiseLevelElement.value = normalizeWordWiseLevel(wordWiseLevelElement.value);
+  persistActiveTranslationPreferences().catch((error) => {
+    console.warn("No se pudieron guardar las preferencias activas.", error);
+  });
   if (inputTextElement.value.trim()) {
     scheduleAutoTranslate();
   }

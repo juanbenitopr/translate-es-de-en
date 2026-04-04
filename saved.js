@@ -26,6 +26,11 @@ const state = {
   historyEntries: [],
   glossaryEntries: []
 };
+const SPEECH_LANGUAGE_CODES = {
+  es: "es-ES",
+  en: "en-GB",
+  de: "de-DE"
+};
 
 function createElement(
   tagName,
@@ -139,6 +144,7 @@ function buildSearchHaystack(entry) {
     entry.contextText,
     entry.pageTitle,
     entry.pageUrl,
+    ...(Array.isArray(entry.phonetics) ? entry.phonetics : []),
     ...(Array.isArray(entry.tags) ? entry.tags : []),
     ...(Array.isArray(entry.translations) ? entry.translations.map((item) => item.text) : [])
   ]
@@ -188,6 +194,91 @@ function createMetaLine(label, value) {
   });
 }
 
+function getSpeechLanguageCode(languageCode) {
+  return SPEECH_LANGUAGE_CODES[String(languageCode ?? "").trim().toLowerCase().split("-")[0]] ?? "";
+}
+
+function canSpeakText(text, languageCode) {
+  return Boolean(
+    String(text ?? "").trim() &&
+      getSpeechLanguageCode(languageCode) &&
+      globalThis.speechSynthesis &&
+      globalThis.SpeechSynthesisUtterance
+  );
+}
+
+function pickSpeechVoice(languageCode) {
+  const speechLanguageCode = getSpeechLanguageCode(languageCode);
+  if (!speechLanguageCode || !globalThis.speechSynthesis?.getVoices) {
+    return null;
+  }
+
+  const normalizedLanguage = speechLanguageCode.toLowerCase();
+  const languagePrefix = normalizedLanguage.split("-")[0];
+  const voices = globalThis.speechSynthesis.getVoices();
+
+  return (
+    voices.find((voice) => String(voice?.lang ?? "").toLowerCase() === normalizedLanguage) ??
+    voices.find((voice) =>
+      String(voice?.lang ?? "").toLowerCase().startsWith(`${languagePrefix}-`)
+    ) ??
+    voices.find((voice) => String(voice?.lang ?? "").toLowerCase() === languagePrefix) ??
+    null
+  );
+}
+
+function speakText(text, languageCode) {
+  if (!canSpeakText(text, languageCode)) {
+    return false;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(String(text ?? "").trim());
+  utterance.lang = getSpeechLanguageCode(languageCode);
+
+  const voice = pickSpeechVoice(languageCode);
+  if (voice) {
+    utterance.voice = voice;
+  }
+
+  globalThis.speechSynthesis.cancel();
+  globalThis.speechSynthesis.speak(utterance);
+  return true;
+}
+
+function createPronunciationButton(label, text, languageCode) {
+  if (!canSpeakText(text, languageCode)) {
+    return null;
+  }
+
+  const button = createElement("button", {
+    className: "secondary-button pronunciation-button",
+    textContent: label,
+    attrs: {
+      type: "button"
+    }
+  });
+  button.addEventListener("click", () => {
+    if (!speakText(text, languageCode)) {
+      setSavedStatus("No se pudo reproducir la pronunciación con la voz disponible.");
+      return;
+    }
+
+    setSavedStatus(`Reproduciendo ${label.toLocaleLowerCase("es-ES")}.`);
+  });
+  return button;
+}
+
+function createPronunciationRow({ sourceText, sourceLanguageCode, targetText, targetLanguageCode }) {
+  const row = createElement("div", { className: "saved-pronunciation-row" });
+  appendChildren(
+    row,
+    createPronunciationButton("Escuchar original", sourceText, sourceLanguageCode),
+    createPronunciationButton("Escuchar traducción", targetText, targetLanguageCode)
+  );
+
+  return row.childNodes.length ? row : null;
+}
+
 function createBadge(text, modifier = "") {
   return createElement("span", {
     className: ["saved-badge", modifier].filter(Boolean),
@@ -210,6 +301,26 @@ function createTranslationList(entry) {
     paragraph.append(strong, document.createTextNode(` ${translation.text}`));
     wrapper.append(paragraph);
   }
+
+  return wrapper;
+}
+
+function createPhoneticsList(entry) {
+  if (!Array.isArray(entry.phonetics) || !entry.phonetics.length) {
+    return null;
+  }
+
+  const wrapper = createElement("div", { className: "saved-translations" });
+
+  entry.phonetics.forEach((phonetic, index) => {
+    const paragraph = createElement("p", { className: "saved-translation" });
+    const strong = createElement("strong", {
+      textContent:
+        entry.phonetics.length > 1 ? `Fonética ${index + 1}:` : "Fonética:"
+    });
+    paragraph.append(strong, document.createTextNode(` ${phonetic}`));
+    wrapper.append(paragraph);
+  });
 
   return wrapper;
 }
@@ -299,19 +410,30 @@ function createHistoryCard(entry) {
   header.append(titleBlock, actions);
 
   const fragment = document.createDocumentFragment();
+  const primaryTranslation = getPrimaryTranslation(entry);
   appendChildren(
     fragment,
     header,
     createMetaLine("Guardado", formatDate(entry.createdAt)),
-    createMetaLine("Origen", entry.sourceLanguage?.label)
+    createMetaLine("Origen", entry.sourceLanguage?.label),
+    createPronunciationRow({
+      sourceText: entry.text,
+      sourceLanguageCode: entry.sourceLanguage?.code,
+      targetText: primaryTranslation?.text,
+      targetLanguageCode: primaryTranslation?.code ?? entry.targetLanguage?.code
+    })
   );
 
-  const primaryTranslation = getPrimaryTranslation(entry);
   if (primaryTranslation && entry.targetLanguage?.label) {
     appendChildren(fragment, createMetaLine("Destino", entry.targetLanguage.label));
   }
 
-  appendChildren(fragment, createTranslationList(entry), createPageMeta(entry));
+  appendChildren(
+    fragment,
+    createPhoneticsList(entry),
+    createTranslationList(entry),
+    createPageMeta(entry)
+  );
   article.append(fragment);
   return article;
 }
@@ -472,7 +594,17 @@ function createGlossaryCard(entry) {
     appendChildren(articleBody, createMetaLine("Destino", entry.targetLanguage.label));
   }
 
-  appendChildren(articleBody, createTranslationList(entry));
+  appendChildren(
+    articleBody,
+    createPronunciationRow({
+      sourceText: entry.text,
+      sourceLanguageCode: entry.sourceLanguage?.code,
+      targetText: primaryTranslation?.text,
+      targetLanguageCode: primaryTranslation?.code ?? entry.targetLanguage?.code
+    }),
+    createPhoneticsList(entry),
+    createTranslationList(entry)
+  );
 
   if (entry.contextText) {
     articleBody.append(
