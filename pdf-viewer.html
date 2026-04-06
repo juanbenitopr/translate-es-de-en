@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Visor PDF interactivo</title>
+    <link rel="stylesheet" href="vendor/pdfjs/legacy/web/pdf_viewer.css" />
+    <link rel="stylesheet" href="pdf-viewer.css" />
+  </head>
+  <body class="pdf-viewer-body">
+    <main class="pdf-shell">
+      <header class="pdf-toolbar">
+        <div class="pdf-toolbar-brand">
+          <p class="pdf-kicker">PDF interactivo</p>
+          <h1 id="viewerTitle" class="pdf-title">Cargando PDF…</h1>
+          <p id="viewerSubtitle" class="pdf-subtitle">Preparando visor y capa de selección.</p>
+        </div>
+
+        <div class="pdf-toolbar-actions" aria-label="Controles del visor">
+          <div class="pdf-control-group">
+            <button id="openLocalPdfButton" class="pdf-button" type="button">Abrir archivo local</button>
+            <input id="localPdfInput" class="pdf-file-input" type="file" accept="application/pdf,.pdf" />
+          </div>
+
+          <div class="pdf-control-group">
+            <button id="prevPageButton" class="pdf-button" type="button">Anterior</button>
+            <label class="pdf-page-field" for="pageNumberInput">
+              <span class="sr-only">Página actual</span>
+              <input id="pageNumberInput" type="number" min="1" value="1" inputmode="numeric" />
+            </label>
+            <span id="pageCountLabel" class="pdf-page-total">/ 0</span>
+            <button id="nextPageButton" class="pdf-button" type="button">Siguiente</button>
+          </div>
+
+          <div class="pdf-control-group">
+            <button id="zoomOutButton" class="pdf-button" type="button">-</button>
+            <button id="fitWidthButton" class="pdf-button pdf-button-primary" type="button">
+              Ajustar ancho
+            </button>
+            <button id="zoomInButton" class="pdf-button" type="button">+</button>
+          </div>
+        </div>
+      </header>
+
+      <p id="viewerStatus" class="pdf-status">Cargando PDF…</p>
+
+      <section class="pdf-stage">
+        <div id="viewerContainer" class="pdf-viewer-container">
+          <section id="emptyState" class="pdf-empty-state" hidden>
+            <div class="pdf-empty-card">
+              <p class="pdf-empty-kicker">Carga manual</p>
+              <h2 id="emptyStateTitle">Abre un PDF desde tu equipo</h2>
+              <p id="emptyStateCopy" class="pdf-empty-copy">
+                Selecciona un archivo PDF local o arrastralo a esta ventana para abrirlo en el visor.
+              </p>
+              <div class="pdf-empty-actions">
+                <button id="emptyStateOpenButton" class="pdf-button pdf-button-primary" type="button">
+                  Seleccionar PDF
+                </button>
+              </div>
+            </div>
+          </section>
+          <div id="pdfViewer" class="pdfViewer"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="selectionToolbar" class="selection-toolbar" hidden>
+      <button id="translateSelectionButton" class="selection-button selection-button-primary" type="button">
+        Traducir selección
+      </button>
+      <button id="saveSelectionButton" class="selection-button" type="button">Guardar</button>
+    </div>
+
+    <script src="browser-api.js"></script>
+    <script type="module" src="pdf-viewer.js"></script>
+  </body>
+</html>

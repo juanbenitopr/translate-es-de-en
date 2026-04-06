@@ -1,0 +1,327 @@
+:root {
+  color-scheme: light;
+  --pdf-bg: #edf2f7;
+  --pdf-surface: rgba(255, 255, 255, 0.88);
+  --pdf-surface-strong: #ffffff;
+  --pdf-border: rgba(15, 23, 42, 0.12);
+  --pdf-border-strong: rgba(15, 23, 42, 0.2);
+  --pdf-text: #10233f;
+  --pdf-muted: #5b6b83;
+  --pdf-accent: #1d4ed8;
+  --pdf-accent-strong: #183ea8;
+  --pdf-shadow: 0 22px 60px rgba(15, 23, 42, 0.14);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family:
+    "Inter",
+    "Segoe UI",
+    sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(29, 78, 216, 0.14), transparent 36%),
+    linear-gradient(180deg, #f8fafc 0%, var(--pdf-bg) 100%);
+  color: var(--pdf-text);
+}
+
+body {
+  min-height: 100vh;
+}
+
+.pdf-shell {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.pdf-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 22px 16px;
+  backdrop-filter: blur(18px);
+  background: rgba(248, 250, 252, 0.84);
+  border-bottom: 1px solid var(--pdf-border);
+}
+
+.pdf-toolbar-brand {
+  display: grid;
+  gap: 4px;
+}
+
+.pdf-kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pdf-muted);
+}
+
+.pdf-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.pdf-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--pdf-muted);
+  max-width: min(100%, 72ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-toolbar-actions,
+.pdf-control-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pdf-button,
+.selection-button {
+  appearance: none;
+  border: 1px solid var(--pdf-border);
+  border-radius: 999px;
+  background: var(--pdf-surface-strong);
+  color: var(--pdf-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.pdf-button {
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.pdf-button:hover,
+.selection-button:hover {
+  border-color: var(--pdf-border-strong);
+  transform: translateY(-1px);
+}
+
+.pdf-button:disabled,
+.selection-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pdf-button-primary,
+.selection-button-primary {
+  border-color: rgba(29, 78, 216, 0.18);
+  background: linear-gradient(180deg, #2a64e3 0%, var(--pdf-accent) 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(29, 78, 216, 0.18);
+}
+
+.pdf-page-field input {
+  width: 74px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--pdf-border);
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--pdf-text);
+  background: var(--pdf-surface-strong);
+}
+
+.pdf-page-total {
+  min-width: 44px;
+  font-variant-numeric: tabular-nums;
+  color: var(--pdf-muted);
+}
+
+.pdf-status {
+  margin: 0;
+  padding: 10px 22px 0;
+  font-size: 14px;
+  color: var(--pdf-muted);
+}
+
+.pdf-status[data-state="error"] {
+  color: #b42318;
+}
+
+.pdf-stage {
+  position: relative;
+  min-height: 0;
+  padding: 18px 22px 24px;
+}
+
+.pdf-viewer-container {
+  position: absolute;
+  inset: 18px 22px 24px;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(241, 245, 249, 0.98) 100%);
+  box-shadow: var(--pdf-shadow);
+}
+
+.pdf-viewer-container[data-dragover="true"] {
+  border-color: rgba(29, 78, 216, 0.42);
+  box-shadow:
+    var(--pdf-shadow),
+    0 0 0 4px rgba(29, 78, 216, 0.12);
+}
+
+.pdf-viewer-container .pdfViewer {
+  padding-bottom: 24px;
+}
+
+.pdf-viewer-container .page {
+  margin: 18px auto !important;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+.pdf-viewer-container .page canvas {
+  border-radius: 18px;
+}
+
+.pdf-empty-state {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.pdf-empty-card {
+  max-width: 560px;
+  padding: 28px;
+  border: 1px solid rgba(29, 78, 216, 0.12);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+  text-align: center;
+}
+
+.pdf-empty-kicker {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pdf-muted);
+}
+
+.pdf-empty-card h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.05;
+}
+
+.pdf-empty-copy {
+  margin: 14px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--pdf-muted);
+}
+
+.pdf-empty-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.selection-toolbar {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(29, 78, 216, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+.selection-button {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.pdf-file-input {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 920px) {
+  .pdf-toolbar {
+    padding-inline: 16px;
+  }
+
+  .pdf-stage {
+    padding: 12px 16px 18px;
+  }
+
+  .pdf-viewer-container {
+    inset: 12px 16px 18px;
+    border-radius: 18px;
+  }
+
+  .pdf-title {
+    font-size: 20px;
+  }
+
+  .pdf-empty-card {
+    padding: 22px;
+    border-radius: 22px;
+  }
+
+  .pdf-empty-card h2 {
+    font-size: 22px;
+  }
+
+  .selection-toolbar {
+    max-width: calc(100vw - 24px);
+    flex-wrap: wrap;
+  }
+}

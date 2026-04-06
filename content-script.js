@@ -190,6 +190,37 @@
         white-space: pre-wrap;
       }
 
+      #${PANEL_ID} .translator-meaning-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      #${PANEL_ID} .translator-meaning-group {
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 10px;
+        background: #f8fafc;
+      }
+
+      #${PANEL_ID} .translator-meaning-part-of-speech {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #64748b;
+      }
+
+      #${PANEL_ID} .translator-meaning-definition-list {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+        font-size: 14px;
+        line-height: 1.45;
+        color: #334155;
+      }
+
       #${PANEL_ID} .translator-pronunciation-actions {
         display: flex;
         flex-wrap: wrap;
@@ -453,6 +484,86 @@
     return createTranslationCard("Fonética", phonetics.join(" · "));
   }
 
+  function formatMeaningPartOfSpeech(partOfSpeech) {
+    const normalizedPartOfSpeech = String(partOfSpeech ?? "").trim().toLowerCase();
+
+    switch (normalizedPartOfSpeech) {
+      case "noun":
+        return "Sustantivo";
+      case "verb":
+        return "Verbo";
+      case "adjective":
+        return "Adjetivo";
+      case "adverb":
+        return "Adverbio";
+      case "pronoun":
+        return "Pronombre";
+      case "preposition":
+        return "Preposicion";
+      case "conjunction":
+        return "Conjuncion";
+      case "interjection":
+      case "exclamation":
+        return "Interjeccion";
+      case "proper noun":
+        return "Nombre propio";
+      case "article":
+        return "Articulo";
+      case "determiner":
+        return "Determinante";
+      case "numeral":
+        return "Numeral";
+      case "particle":
+        return "Particula";
+      default:
+        return String(partOfSpeech ?? "").trim() || "General";
+    }
+  }
+
+  function createMeaningsCard(meanings = []) {
+    if (!Array.isArray(meanings) || !meanings.length) {
+      return null;
+    }
+
+    const article = createElement("article", { className: "translator-card" });
+    const heading = createElement("h4", { textContent: "Significados" });
+    const meaningList = createElement("div", { className: "translator-meaning-list" });
+
+    for (const meaning of meanings) {
+      const definitions = Array.isArray(meaning?.definitions) ? meaning.definitions : [];
+      if (!definitions.length) {
+        continue;
+      }
+
+      const meaningGroup = createElement("section", { className: "translator-meaning-group" });
+      const partOfSpeech = createElement("p", {
+        className: "translator-meaning-part-of-speech",
+        textContent: formatMeaningPartOfSpeech(meaning?.partOfSpeech)
+      });
+      const definitionList = createElement("ol", {
+        className: "translator-meaning-definition-list"
+      });
+
+      for (const definition of definitions) {
+        definitionList.append(
+          createElement("li", {
+            textContent: definition
+          })
+        );
+      }
+
+      meaningGroup.append(partOfSpeech, definitionList);
+      meaningList.append(meaningGroup);
+    }
+
+    if (!meaningList.childNodes.length) {
+      return null;
+    }
+
+    article.append(heading, meaningList);
+    return article;
+  }
+
   function normalizeSpeechLanguageCode(languageCode) {
     return SPEECH_LANGUAGE_CODES[String(languageCode ?? "").trim().toLowerCase().split("-")[0]] ?? "";
   }
@@ -659,6 +770,7 @@
             : `Origen: ${result.sourceLanguage.label}`
         ),
         createPhoneticsCard(result.lexical?.phonetics),
+        createMeaningsCard(result.lexical?.meanings),
         createPronunciationCard({
           sourceText: result.input,
           sourceLanguageCode: result.sourceLanguage?.code,

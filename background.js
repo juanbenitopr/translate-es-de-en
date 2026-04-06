@@ -5,6 +5,7 @@ const SAVE_CONTEXT_MENU_ID = "save-selected-text";
 const TRANSLATE_SELECTION_COMMAND = "translate-selection";
 const TRANSLATE_PDF_SELECTION_COMMAND = "translate-pdf-selection";
 const START_BLOCK_PICKER_COMMAND = "start-block-picker";
+const PDF_VIEWER_PAGE = "pdf-viewer.html";
 const SUPPORTED_LANGUAGES = [
   { code: "es", label: "Español" },
   { code: "en", label: "English" },
@@ -60,6 +61,8 @@ const TATOEBA_LANGUAGE_CODES = {
 const MAX_SYNONYMS = 8;
 const MAX_EXAMPLES = 4;
 const MAX_PHONETICS = 3;
+const MAX_MEANING_GROUPS = 4;
+const MAX_MEANING_DEFINITIONS = 3;
 const SINGLE_WORD_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M}'’-]*$/u;
 const POPUP_DRAFT_KEY = "popupDraft";
 const PINNED_POPUP_DIMENSIONS = {
@@ -216,6 +219,10 @@ function sanitizePhoneticCandidate(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function sanitizeMeaningCandidate(value) {
+  return normalizeInlineText(value);
+}
+
 function normalizePhoneticList(phonetics) {
   if (!Array.isArray(phonetics)) {
     return [];
@@ -226,6 +233,45 @@ function normalizePhoneticList(phonetics) {
       .map((value) => sanitizePhoneticCandidate(value))
       .filter(Boolean)
   ).slice(0, MAX_PHONETICS);
+}
+
+function normalizeMeaningGroups(meanings) {
+  if (!Array.isArray(meanings)) {
+    return [];
+  }
+
+  const groupedMeanings = new Map();
+
+  for (const meaning of meanings) {
+    const partOfSpeech = normalizeInlineText(meaning?.partOfSpeech) || "General";
+    const definitions = uniqueByNormalizedValue(
+      (meaning?.definitions ?? [])
+        .map((value) => sanitizeMeaningCandidate(value))
+        .filter(Boolean)
+    ).slice(0, MAX_MEANING_DEFINITIONS);
+
+    if (!definitions.length) {
+      continue;
+    }
+
+    const groupingKey = partOfSpeech.toLocaleLowerCase("es-ES");
+    const existingMeaning = groupedMeanings.get(groupingKey);
+
+    if (existingMeaning) {
+      existingMeaning.definitions = uniqueByNormalizedValue([
+        ...existingMeaning.definitions,
+        ...definitions
+      ]).slice(0, MAX_MEANING_DEFINITIONS);
+      continue;
+    }
+
+    groupedMeanings.set(groupingKey, {
+      partOfSpeech,
+      definitions
+    });
+  }
+
+  return Array.from(groupedMeanings.values()).slice(0, MAX_MEANING_GROUPS);
 }
 
 function isSameEndpoint(leftSettings, rightSettings) {
@@ -1165,6 +1211,23 @@ async function fetchEnglishPhonetics(text, timeoutMs) {
   return normalizePhoneticList(phonetics);
 }
 
+async function fetchEnglishMeanings(text, timeoutMs) {
+  const endpoint = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(text)}`;
+  const data = await fetchJsonWithTimeout(endpoint, { timeoutMs });
+  const meanings = [];
+
+  for (const entry of Array.isArray(data) ? data : []) {
+    for (const meaning of entry.meanings ?? []) {
+      meanings.push({
+        partOfSpeech: meaning?.partOfSpeech,
+        definitions: (meaning?.definitions ?? []).map((definition) => definition?.definition)
+      });
+    }
+  }
+
+  return normalizeMeaningGroups(meanings);
+}
+
 async function fetchWiktionaryPhonetics(text, sourceLanguage, timeoutMs) {
   const endpoint = new URL(`/v1/en/word/${encodeURIComponent(text)}`, WIKTAPI_API_BASE_URL);
   endpoint.searchParams.set("lang", sourceLanguage);
@@ -1181,6 +1244,29 @@ async function fetchWiktionaryPhonetics(text, sourceLanguage, timeoutMs) {
   return normalizePhoneticList(phonetics);
 }
 
+async function fetchWiktionaryMeanings(text, sourceLanguage, timeoutMs) {
+  const endpoint = new URL(`/v1/en/word/${encodeURIComponent(text)}`, WIKTAPI_API_BASE_URL);
+  endpoint.searchParams.set("lang", sourceLanguage);
+
+  const data = await fetchJsonWithTimeout(endpoint, { timeoutMs });
+  const meanings = [];
+
+  for (const entry of data.entries ?? []) {
+    const definitions = [];
+
+    for (const sense of entry.senses ?? []) {
+      definitions.push(...(sense.glosses ?? []));
+    }
+
+    meanings.push({
+      partOfSpeech: entry?.pos,
+      definitions
+    });
+  }
+
+  return normalizeMeaningGroups(meanings);
+}
+
 async function fetchPhonetics(text, sourceLanguage, timeoutMs) {
   switch (sourceLanguage) {
     case "en":
@@ -1193,9 +1279,22 @@ async function fetchPhonetics(text, sourceLanguage, timeoutMs) {
   }
 }
 
+async function fetchMeanings(text, sourceLanguage, timeoutMs) {
+  switch (sourceLanguage) {
+    case "en":
+      return fetchEnglishMeanings(text, timeoutMs);
+    case "es":
+    case "de":
+      return fetchWiktionaryMeanings(text, sourceLanguage, timeoutMs);
+    default:
+      return [];
+  }
+}
+
 async function buildLexicalInsights(text, sourceLanguage, settings, options = {}) {
   const lexical = {
     phonetics: [],
+    meanings: [],
     synonyms: [],
     examples: [],
     notes: [],
@@ -1207,7 +1306,9 @@ async function buildLexicalInsights(text, sourceLanguage, settings, options = {}
   }
 
   if (!sourceLanguage) {
-    lexical.notes.push("Selecciona el idioma origen manualmente para ver fonética, sinónimos o ejemplos.");
+    lexical.notes.push(
+      "Selecciona el idioma origen manualmente para ver fonética, significados, sinónimos o ejemplos."
+    );
     return lexical;
   }
 
@@ -1222,6 +1323,16 @@ async function buildLexicalInsights(text, sourceLanguage, settings, options = {}
         })
         .catch((error) => {
           console.warn("No se pudo cargar la transcripción fonética.", error);
+        })
+    );
+
+    tasks.push(
+      fetchMeanings(text, sourceLanguage, settings.requestTimeoutMs)
+        .then((meanings) => {
+          lexical.meanings = meanings;
+        })
+        .catch((error) => {
+          console.warn("No se pudieron cargar los significados.", error);
         })
     );
   }
@@ -1280,6 +1391,7 @@ async function buildLexicalInsights(text, sourceLanguage, settings, options = {}
 function buildEmptyLexicalInsights() {
   return {
     phonetics: [],
+    meanings: [],
     synonyms: [],
     examples: [],
     notes: [],
@@ -2026,6 +2138,70 @@ async function openSavedTab() {
   });
 }
 
+function getEmbeddedPdfUrl(url) {
+  const cleanUrl = String(url ?? "").trim();
+  if (!cleanUrl) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(cleanUrl);
+    return String(parsedUrl.searchParams.get("file") ?? "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function resolvePdfSourceUrl(rawUrl) {
+  const cleanUrl = String(rawUrl ?? "").trim();
+  if (!cleanUrl) {
+    return "";
+  }
+
+  const embeddedPdfUrl = getEmbeddedPdfUrl(cleanUrl);
+  return embeddedPdfUrl || cleanUrl;
+}
+
+function isSupportedPdfSourceUrl(url) {
+  try {
+    const parsedUrl = new URL(String(url ?? "").trim());
+    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+  } catch (error) {
+    return false;
+  }
+}
+
+async function openPdfViewerTab(pdfUrl, pageTitle = "") {
+  const resolvedPdfUrl = resolvePdfSourceUrl(pdfUrl);
+  const searchParams = new URLSearchParams();
+  if (isSupportedPdfSourceUrl(resolvedPdfUrl)) {
+    searchParams.set("file", resolvedPdfUrl);
+  }
+
+  const cleanPageTitle = String(pageTitle ?? "").trim();
+  if (cleanPageTitle) {
+    searchParams.set("title", cleanPageTitle);
+  }
+
+  await browserApi.tabs.create({
+    url: browserApi.runtime.getURL(`${PDF_VIEWER_PAGE}?${searchParams.toString()}`)
+  });
+}
+
+async function openPdfViewerForActiveTab() {
+  const activeTab = await getActiveTab();
+  if (!isProbablyPdfTab(activeTab)) {
+    throw new Error("La pestaña activa no parece contener un PDF.");
+  }
+
+  const pdfUrl = resolvePdfSourceUrl(activeTab?.url);
+  await openPdfViewerTab(pdfUrl, activeTab?.title ?? "");
+  return {
+    opened: true,
+    pdfUrl: isSupportedPdfSourceUrl(pdfUrl) ? pdfUrl : ""
+  };
+}
+
 async function getActiveTab() {
   const tabs = await browserApi.tabs.query({
     active: true,
@@ -2035,7 +2211,8 @@ async function getActiveTab() {
 }
 
 function isProbablyPdfTab(tab) {
-  const url = String(tab?.url ?? "").trim().toLowerCase();
+  const resolvedUrl = resolvePdfSourceUrl(tab?.url);
+  const url = resolvedUrl.toLowerCase();
   const title = String(tab?.title ?? "").trim().toLowerCase();
 
   if (!url) {
@@ -2073,6 +2250,56 @@ async function getSelectionFromActiveTab() {
     console.warn("No se pudo leer la selección de la pestaña activa.", error);
     return "";
   }
+}
+
+async function translatePdfViewerSelection({
+  text,
+  sourceLanguage = "auto",
+  pageContext = null
+} = {}) {
+  const selectedText = normalizeEntryText(text);
+  if (!selectedText) {
+    throw new Error("No hay texto seleccionado para traducir.");
+  }
+
+  await setLastSelection(selectedText);
+
+  try {
+    const result = await translateAndStore(selectedText, sourceLanguage, pageContext);
+    await openResultsTab();
+    return {
+      ok: true,
+      result
+    };
+  } catch (error) {
+    await setLastError(selectedText, error.message);
+    await openResultsTab();
+    throw error;
+  }
+}
+
+async function savePdfViewerSelection({ text, pageContext = null } = {}) {
+  const selectedText = normalizeEntryText(text);
+  if (!selectedText) {
+    throw new Error("No hay texto seleccionado para guardar.");
+  }
+
+  await setLastSelection(selectedText);
+  const result = await saveEntry(selectedText, { pageContext });
+
+  await browserApi.storage.local.set({
+    saveFeedback: {
+      text: selectedText,
+      duplicate: result.duplicate,
+      createdAt: new Date().toISOString()
+    }
+  });
+  await openResultsTab();
+
+  return {
+    ok: true,
+    ...result
+  };
 }
 
 function buildStartPickerError(error) {
@@ -2325,7 +2552,11 @@ browserApi.runtime.onMessage.addListener((message, sender) => {
       return getPopupDraft();
 
     case "save-entry":
-      return saveEntry(message.text);
+      return saveEntry(message.text, {
+        pageContext: message.pageContext ?? null,
+        translationResult: message.translationResult ?? null,
+        originHistoryId: message.originHistoryId ?? null
+      });
 
     case "get-history-entries":
       return getHistoryEntries();
@@ -2366,6 +2597,22 @@ browserApi.runtime.onMessage.addListener((message, sender) => {
 
     case "open-results-tab":
       return openResultsTab();
+
+    case "open-active-pdf-viewer":
+      return openPdfViewerForActiveTab();
+
+    case "translate-pdf-viewer-selection":
+      return translatePdfViewerSelection({
+        text: message.text,
+        sourceLanguage: message.sourceLanguage ?? "auto",
+        pageContext: message.pageContext ?? null
+      });
+
+    case "save-pdf-viewer-selection":
+      return savePdfViewerSelection({
+        text: message.text,
+        pageContext: message.pageContext ?? null
+      });
 
     case "open-pinned-popup":
       return openPinnedPopupWindow(message.draft ?? null);

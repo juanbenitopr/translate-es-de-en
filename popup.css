@@ -378,6 +378,7 @@ h2 {
 }
 
 .tag-list,
+.meaning-list,
 .example-list,
 .note-list {
   display: grid;
@@ -399,12 +400,38 @@ h2 {
   font-weight: 600;
 }
 
+.meaning-group,
 .example-item,
 .note-item {
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--surface-soft);
   color: #334155;
+}
+
+.meaning-group {
+  display: grid;
+  gap: 8px;
+}
+
+.meaning-part-of-speech {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.meaning-definition-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.meaning-definition-item,
+.example-item,
+.note-item {
   white-space: pre-wrap;
 }
 

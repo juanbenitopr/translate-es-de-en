@@ -19,6 +19,9 @@ WebExtension orientada a traducir palabras y frases entre español, inglés y al
   - sinónimos para palabras sueltas en inglés y alemán
   - ejemplos de uso para español, inglés y alemán
 - Flujo práctico para PDF:
+  - Si el PDF está abierto en una pestaña, puedes usar el popup y pulsar `Abrir visor PDF` para cargarlo en el visor interactivo propio.
+  - Si el PDF es local o el remoto no se puede descargar por autenticación, el visor te dejará cargarlo manualmente con selector de archivo o drag and drop.
+  - Dentro del visor interactivo puedes navegar por páginas, hacer zoom, seleccionar texto y lanzarlo al traductor o guardarlo.
   - Si el navegador expone la selección al menú contextual, puedes traducir directamente desde ahí.
   - También puedes usar el atajo específico de PDF para intentar traducir la selección actual y abrir el resultado en la vista grande.
   - Si no, puedes copiar el texto del PDF y pegarlo en el popup.
@@ -31,6 +34,7 @@ WebExtension orientada a traducir palabras y frases entre español, inglés y al
 - `background.js`: menús, traducción, almacenamiento y comandos.
 - `content-script.js`: detección de selección y traducción inline en páginas HTML.
 - `popup.html` + `popup.js`: interfaz rápida del toolbar y vista ampliada.
+- `pdf-viewer.html` + `pdf-viewer.js`: visor PDF propio basado en `pdf.js`, con selección interactiva.
 - `options.html` + `options.js`: configuración del endpoint de traducción.
 - `scripts/build.mjs`: genera `dist/firefox` y `dist/chrome`.
 
@@ -79,6 +83,7 @@ El script genera:
 
 El visor PDF integrado del navegador no se comporta igual que una página web normal para una WebExtension. Por eso el soporte realista para PDF se basa en:
 
+- visor PDF propio de la extensión para abrir manualmente el PDF actual en una pestaña interactiva
 - menú contextual sobre texto seleccionado, cuando el navegador lo permite
 - atajo específico de PDF para traducir selección, cuando el navegador expone esa selección al comando
 - copia y pegado en el popup, como fallback

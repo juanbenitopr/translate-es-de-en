@@ -16,11 +16,45 @@ const sharedPaths = [
   "icons",
   "options.html",
   "options.js",
+  "pdf-viewer.css",
+  "pdf-viewer.html",
+  "pdf-viewer.js",
   "popup.css",
   "popup.html",
   "popup.js",
   "saved.html",
   "saved.js"
+];
+
+const sharedCopyMappings = [
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/legacy/build/pdf.mjs"),
+    to: "vendor/pdfjs/legacy/build/pdf.mjs"
+  },
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"),
+    to: "vendor/pdfjs/legacy/build/pdf.worker.mjs"
+  },
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/legacy/web/pdf_viewer.css"),
+    to: "vendor/pdfjs/legacy/web/pdf_viewer.css"
+  },
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs"),
+    to: "vendor/pdfjs/legacy/web/pdf_viewer.mjs"
+  },
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/legacy/web/images"),
+    to: "vendor/pdfjs/legacy/web/images"
+  },
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/standard_fonts"),
+    to: "vendor/pdfjs/standard_fonts"
+  },
+  {
+    from: path.join(rootDir, "node_modules/pdfjs-dist/wasm"),
+    to: "vendor/pdfjs/wasm"
+  }
 ];
 
 const targetExtraPaths = {
@@ -59,6 +93,16 @@ for (const target of targetsToBuild) {
     path.join(rootDir, targetManifests[target]),
     path.join(outDir, "manifest.json")
   );
+
+  for (const mapping of sharedCopyMappings) {
+    if (!existsSync(mapping.from)) {
+      throw new Error(`No se ha encontrado ${mapping.from} al preparar la build ${target}.`);
+    }
+
+    const outputPath = path.join(outDir, mapping.to);
+    mkdirSync(path.dirname(outputPath), { recursive: true });
+    cpSync(mapping.from, outputPath, { recursive: true });
+  }
 
   console.log(`Build lista: dist/${target}`);
 }

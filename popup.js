@@ -17,6 +17,7 @@ const outputTextElement = document.getElementById("outputText");
 const translateButton = document.getElementById("translateButton");
 const useSelectionButton = document.getElementById("useSelectionButton");
 const pickBlockButton = document.getElementById("pickBlockButton");
+const openPdfViewerButton = document.getElementById("openPdfViewerButton");
 const saveButton = document.getElementById("saveButton");
 const openSavedButton = document.getElementById("openSavedButton");
 const pinPopupButton = document.getElementById("pinPopupButton");
@@ -48,6 +49,43 @@ function createTranslationRequestId() {
   }
 
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getEmbeddedPdfUrl(url) {
+  const cleanUrl = String(url ?? "").trim();
+  if (!cleanUrl) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(cleanUrl);
+    return String(parsedUrl.searchParams.get("file") ?? "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function resolvePdfSourceUrl(url) {
+  return getEmbeddedPdfUrl(url) || String(url ?? "").trim();
+}
+
+function isProbablyPdfTab(tab) {
+  const url = resolvePdfSourceUrl(tab?.url).toLowerCase();
+  const title = String(tab?.title ?? "").trim().toLowerCase();
+
+  if (!url) {
+    return false;
+  }
+
+  if (url.endsWith(".pdf") || /[?#].*\.pdf(?:[?#]|$)/i.test(url)) {
+    return true;
+  }
+
+  return (
+    url.includes("application/pdf") ||
+    url.includes("/pdf.js/") ||
+    title.endsWith(".pdf")
+  );
 }
 
 function createElement(tagName, { className = "", textContent = null } = {}) {
@@ -145,6 +183,85 @@ function createTextCard(
   }
 
   article.append(heading, list);
+  return article;
+}
+
+function formatMeaningPartOfSpeech(partOfSpeech) {
+  const normalizedPartOfSpeech = String(partOfSpeech ?? "").trim().toLowerCase();
+
+  switch (normalizedPartOfSpeech) {
+    case "noun":
+      return "Sustantivo";
+    case "verb":
+      return "Verbo";
+    case "adjective":
+      return "Adjetivo";
+    case "adverb":
+      return "Adverbio";
+    case "pronoun":
+      return "Pronombre";
+    case "preposition":
+      return "Preposicion";
+    case "conjunction":
+      return "Conjuncion";
+    case "interjection":
+    case "exclamation":
+      return "Interjeccion";
+    case "proper noun":
+      return "Nombre propio";
+    case "article":
+      return "Articulo";
+    case "determiner":
+      return "Determinante";
+    case "numeral":
+      return "Numeral";
+    case "particle":
+      return "Particula";
+    default:
+      return String(partOfSpeech ?? "").trim() || "General";
+  }
+}
+
+function createMeaningsCard(title, meanings) {
+  if (!Array.isArray(meanings) || !meanings.length) {
+    return null;
+  }
+
+  const article = createElement("article", { className: "insight-card" });
+  const heading = createElement("h3", { textContent: title });
+  const meaningList = createElement("div", { className: "meaning-list" });
+
+  for (const meaning of meanings) {
+    const definitions = Array.isArray(meaning?.definitions) ? meaning.definitions : [];
+    if (!definitions.length) {
+      continue;
+    }
+
+    const meaningGroup = createElement("section", { className: "meaning-group" });
+    const partOfSpeech = createElement("p", {
+      className: "meaning-part-of-speech",
+      textContent: formatMeaningPartOfSpeech(meaning?.partOfSpeech)
+    });
+    const definitionList = createElement("ol", { className: "meaning-definition-list" });
+
+    for (const definition of definitions) {
+      definitionList.append(
+        createElement("li", {
+          className: "meaning-definition-item",
+          textContent: definition
+        })
+      );
+    }
+
+    meaningGroup.append(partOfSpeech, definitionList);
+    meaningList.append(meaningGroup);
+  }
+
+  if (!meaningList.childNodes.length) {
+    return null;
+  }
+
+  article.append(heading, meaningList);
   return article;
 }
 
@@ -596,6 +713,7 @@ function renderFullTranslationResult(result) {
       targetText: primaryTranslation?.text,
       targetLanguageCode: primaryTranslation?.code ?? result.targetLanguage?.code
     }),
+    createMeaningsCard("Significados", result.lexical?.meanings),
     createTagCard("Sinónimos", result.lexical?.synonyms),
     createTextCard("Ejemplos", result.lexical?.examples, {
       cardClassName: "insight-card",
@@ -879,6 +997,12 @@ async function initializePopup() {
     pinPopupButton.disabled = true;
   }
 
+  const activeTabs = await browserApi.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+  openPdfViewerButton.hidden = !isProbablyPdfTab(activeTabs[0]);
+
   popupSettings = await browserApi.runtime.sendMessage({
     type: "get-settings"
   });
@@ -1050,6 +1174,20 @@ openOptionsButton.addEventListener("click", () => {
 
 openStandaloneButton.addEventListener("click", () => {
   browserApi.runtime.sendMessage({ type: "open-results-tab" });
+});
+
+openPdfViewerButton.addEventListener("click", () => {
+  browserApi.runtime
+    .sendMessage({ type: "open-active-pdf-viewer" })
+    .then(() => {
+      setStatus("Abriendo el visor PDF interactivo...");
+      if ((shellElement.dataset.mode || "popup") === "popup") {
+        window.close();
+      }
+    })
+    .catch((error) => {
+      setStatus(error.message || "No se pudo abrir el visor PDF.");
+    });
 });
 
 initializePopup().catch((error) => {
