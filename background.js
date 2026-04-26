@@ -70,6 +70,23 @@ const WORD_WISE_LEVEL_THRESHOLDS = {
   C1: 5,
   C2: 6
 };
+
+function hasContextMenusApi() {
+  return Boolean(
+    browserApi.contextMenus?.create &&
+      browserApi.contextMenus?.removeAll &&
+      browserApi.contextMenus?.onClicked?.addListener
+  );
+}
+
+function hasCommandsApi() {
+  return Boolean(browserApi.commands?.onCommand?.addListener);
+}
+
+function isWindowManagementAvailable() {
+  return Boolean(browserApi.windows?.create && browserApi.windows?.update);
+}
+
 const GERMAN_COMMON_WORDS = new Set(
   `
   aber ach acht alles also alt am an andere anderen auch auf aus bei bald bevor bin bis bist bitte da dann das dass dein deine dem den der des dich die dies diese dieser dieses doch dort du durch ein eine einem einen einer eines er es etwas euch euer eure für gegen gehabt gehen geht gerade gut habe haben hast hat hatte hatten hier hin hinter ich ihr ihre im in ist ja jede jedem jeden jeder jedes jetzt kann kein keine keinen kleiner komm kommen könnte machen mein meine mit musste nach nicht noch nun nur ob oder ohne sehr sein seine sich sie sind so soll sondern sonst und unser unsere unter vom von vor warum was weil weiter welche welchem welchen welcher welches wenn wer werde werden wie wieder wir wird willst wo zu zum zur zwischen
@@ -1356,6 +1373,11 @@ async function openPinnedPopupWindow(draft = null) {
     await setPopupDraft(draft);
   }
 
+  if (!isWindowManagementAvailable()) {
+    await browserApi.tabs.create({ url: pinnedPopupUrl });
+    return null;
+  }
+
   if (pinnedPopupWindowId) {
     try {
       const existingTabs = await browserApi.tabs.query({
@@ -1480,6 +1502,10 @@ async function startDomBlockPicker(translationOptions = {}) {
 }
 
 async function createContextMenu() {
+  if (!hasContextMenusApi()) {
+    return;
+  }
+
   try {
     await browserApi.contextMenus.removeAll();
   } catch (error) {
@@ -1522,7 +1548,8 @@ browserApi.windows?.onRemoved?.addListener((windowId) => {
   }
 });
 
-browserApi.contextMenus.onClicked.addListener(async (info) => {
+if (hasContextMenusApi()) {
+  browserApi.contextMenus.onClicked.addListener(async (info) => {
   const selectedText = String(info.selectionText ?? "").trim();
 
   if (info.menuItemId === SAVE_CONTEXT_MENU_ID) {
@@ -1565,9 +1592,11 @@ browserApi.contextMenus.onClicked.addListener(async (info) => {
   }
 
   await openResultsTab();
-});
+  });
+}
 
-browserApi.commands.onCommand.addListener(async (command) => {
+if (hasCommandsApi()) {
+  browserApi.commands.onCommand.addListener(async (command) => {
   if (command === START_BLOCK_PICKER_COMMAND) {
     try {
       await startDomBlockPicker({
@@ -1628,7 +1657,8 @@ browserApi.commands.onCommand.addListener(async (command) => {
   }
 
   await openResultsTab();
-});
+  });
+}
 
 browserApi.runtime.onMessage.addListener((message) => {
   switch (message?.type) {

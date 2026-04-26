@@ -1,0 +1,68 @@
+{
+  "manifest_version": 2,
+  "name": "Traductor ES / EN / DE",
+  "version": "0.1.0",
+  "description": "Traduce palabras y frases entre espanol, ingles y aleman, con soporte practico para paginas web.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "traductor-es-en-de@example.com",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent"
+        ]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "icons": {
+    "32": "icons/translator-mark-32.png",
+    "48": "icons/translator-mark-48.png",
+    "64": "icons/translator-mark-64.png",
+    "96": "icons/translator-mark-96.png",
+    "128": "icons/translator-mark-128.png"
+  },
+  "background": {
+    "scripts": [
+      "browser-api.js",
+      "background.js"
+    ]
+  },
+  "browser_action": {
+    "default_title": "Traductor ES / EN / DE",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "32": "icons/translator-mark-32.png",
+      "48": "icons/translator-mark-48.png",
+      "64": "icons/translator-mark-64.png",
+      "96": "icons/translator-mark-96.png",
+      "128": "icons/translator-mark-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "browser-api.js",
+        "content-script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

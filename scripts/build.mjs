@@ -6,7 +6,8 @@ const distDir = path.join(rootDir, "dist");
 
 const targetManifests = {
   chrome: "manifest.chrome.json",
-  firefox: "manifest.json"
+  firefox: "manifest.json",
+  "firefox-android": "manifest.android.json"
 };
 
 const sharedPaths = [
@@ -44,7 +45,7 @@ for (const target of targetsToBuild) {
   rmSync(outDir, { force: true, recursive: true });
   mkdirSync(outDir, { recursive: true });
 
-  for (const filePath of [...sharedPaths, ...targetExtraPaths[target]]) {
+  for (const filePath of [...sharedPaths, ...(targetExtraPaths[target] ?? [])]) {
     const sourcePath = path.join(rootDir, filePath);
     const outputPath = path.join(outDir, filePath);
 
