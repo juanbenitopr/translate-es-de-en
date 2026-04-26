@@ -543,10 +543,6 @@ h2 {
 }
 
 @media (max-width: 560px) {
-  .popup-body {
-    min-width: 0;
-  }
-
   .translator-grid {
     grid-template-columns: 1fr;
   }
