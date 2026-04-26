@@ -403,6 +403,10 @@
     });
   }
 
+  function getLanguageDisplayLabel(language, fallback = "") {
+    return String(language?.label ?? language?.code ?? fallback);
+  }
+
   function createTranslationCard(title, text, paragraphClassName = "") {
     const article = createElement("article", { className: "translator-card" });
     article.append(createElement("h4", { textContent: title }));
@@ -506,7 +510,7 @@
 
               return [
                 createTranslatorStatus(
-                  `Origen: ${result.sourceLanguage.label} · Destino: ${
+                  `Origen: ${getLanguageDisplayLabel(result.sourceLanguage, "Auto")} · Destino: ${
                     wordWise.targetLanguage?.label || result.targetLanguage?.label || ""
                   } · Nivel: ${wordWise.level}`
                 ),
@@ -534,7 +538,7 @@
         [
           createSimpleHeader("Traduccion rapida"),
           createTranslatorInput(result.input ?? ""),
-          createTranslatorStatus(`Origen: ${result.sourceLanguage.label}`),
+          createTranslatorStatus(`Origen: ${getLanguageDisplayLabel(result.sourceLanguage, "Auto")}`),
           createTranslationCards(result.translations)
         ]
       );
@@ -789,7 +793,7 @@
       : activeBubbleState.result
         ? [
             createTranslatorStatus(
-              `Origen: ${activeBubbleState.result.sourceLanguage.label}`
+              `Origen: ${getLanguageDisplayLabel(activeBubbleState.result.sourceLanguage, "Auto")}`
             ),
             createTranslatorSection("Texto original", originalPreview, true),
             createTranslationCards(activeBubbleState.result.translations)

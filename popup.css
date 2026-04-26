@@ -503,10 +503,6 @@ h2 {
     padding: 10px;
   }
 
-  .translator-topbar {
-    grid-template-columns: 1fr;
-  }
-
   .topbar-actions,
   .topbar-actions-end {
     justify-content: space-between;

@@ -3,13 +3,10 @@
     return;
   }
 
-  if (globalThis.browser) {
-    globalThis.browserApi = globalThis.browser;
-    return;
-  }
-
   const chromeApi = globalThis.chrome;
-  if (!chromeApi) {
+  const nativeBrowserApi = globalThis.browser;
+
+  if (!chromeApi && !nativeBrowserApi) {
     throw new Error("No se ha encontrado ninguna API de extensiones compatible.");
   }
 
@@ -37,6 +34,23 @@
     }
 
     return response.value;
+  }
+
+  function createNativeBrowserApi(nativeApi) {
+    return {
+      ...nativeApi,
+      runtime: {
+        ...nativeApi.runtime,
+        sendMessage: async (...args) =>
+          unwrapResponseEnvelope(await nativeApi.runtime.sendMessage(...args))
+      },
+      tabs: {
+        ...nativeApi.tabs,
+        sendMessage: nativeApi.tabs?.sendMessage
+          ? async (...args) => unwrapResponseEnvelope(await nativeApi.tabs.sendMessage(...args))
+          : undefined
+      }
+    };
   }
 
   function promisify(namespace, methodName, options = {}) {
@@ -110,6 +124,11 @@
     };
   }
 
+  if (!chromeApi && nativeBrowserApi) {
+    globalThis.browserApi = createNativeBrowserApi(nativeBrowserApi);
+    return;
+  }
+
   globalThis.browserApi = {
     ...chromeApi,
     runtime: {
@@ -146,8 +165,8 @@
     },
     contextMenus: {
       ...chromeApi.contextMenus,
-      create: chromeApi.contextMenus.create.bind(chromeApi.contextMenus),
-      onClicked: chromeApi.contextMenus.onClicked,
+      create: chromeApi.contextMenus?.create?.bind(chromeApi.contextMenus),
+      onClicked: chromeApi.contextMenus?.onClicked,
       removeAll: promisify(chromeApi.contextMenus, "removeAll")
     },
     commands: chromeApi.commands,
